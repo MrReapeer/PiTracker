@@ -32,22 +32,29 @@
             browseC = new Button();
             seqSourceC = new RadioButton();
             camSourceC = new RadioButton();
-            panel1 = new Panel();
             startC = new Button();
+            frameC = new PictureBox();
+            seekbarC = new TrackBar();
+            playedC = new CheckBox();
+            ((System.ComponentModel.ISupportInitialize)frameC).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)seekbarC).BeginInit();
             SuspendLayout();
             // 
-            // textBox1
+            // imageSourceC
             // 
-            imageSourceC.Location = new Point(17, 23);
-            imageSourceC.Name = "textBox1";
-            imageSourceC.Size = new Size(601, 31);
+            imageSourceC.Location = new Point(12, 14);
+            imageSourceC.Margin = new Padding(2);
+            imageSourceC.Name = "imageSourceC";
+            imageSourceC.Size = new Size(422, 23);
             imageSourceC.TabIndex = 0;
+            imageSourceC.Text = "F:\\Github\\PiTracker\\Algo\\20260311_132636_frames";
             // 
             // browseC
             // 
-            browseC.Location = new Point(624, 20);
+            browseC.Location = new Point(437, 12);
+            browseC.Margin = new Padding(2);
             browseC.Name = "browseC";
-            browseC.Size = new Size(112, 34);
+            browseC.Size = new Size(78, 20);
             browseC.TabIndex = 1;
             browseC.Text = "Browse";
             browseC.UseVisualStyleBackColor = true;
@@ -56,9 +63,10 @@
             // 
             seqSourceC.AutoSize = true;
             seqSourceC.Checked = true;
-            seqSourceC.Location = new Point(17, 98);
+            seqSourceC.Location = new Point(12, 59);
+            seqSourceC.Margin = new Padding(2);
             seqSourceC.Name = "seqSourceC";
-            seqSourceC.Size = new Size(113, 29);
+            seqSourceC.Size = new Size(76, 19);
             seqSourceC.TabIndex = 2;
             seqSourceC.TabStop = true;
             seqSourceC.Text = "Sequence";
@@ -67,44 +75,72 @@
             // camSourceC
             // 
             camSourceC.AutoSize = true;
-            camSourceC.Location = new Point(145, 98);
+            camSourceC.Location = new Point(102, 59);
+            camSourceC.Margin = new Padding(2);
             camSourceC.Name = "camSourceC";
-            camSourceC.Size = new Size(97, 29);
+            camSourceC.Size = new Size(66, 19);
             camSourceC.TabIndex = 2;
             camSourceC.Text = "Camera";
             camSourceC.UseVisualStyleBackColor = true;
             // 
-            // panel1
-            // 
-            panel1.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            panel1.Location = new Point(9, 138);
-            panel1.Name = "panel1";
-            panel1.Size = new Size(727, 443);
-            panel1.TabIndex = 3;
-            // 
             // startC
             // 
-            startC.Location = new Point(624, 60);
+            startC.Location = new Point(437, 36);
+            startC.Margin = new Padding(2);
             startC.Name = "startC";
-            startC.Size = new Size(112, 67);
+            startC.Size = new Size(78, 40);
             startC.TabIndex = 1;
             startC.Text = "Start";
             startC.UseVisualStyleBackColor = true;
             startC.Click += startC_Click;
             // 
+            // frameC
+            // 
+            frameC.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            frameC.BackgroundImageLayout = ImageLayout.Zoom;
+            frameC.Location = new Point(12, 83);
+            frameC.Name = "frameC";
+            frameC.Size = new Size(504, 234);
+            frameC.TabIndex = 3;
+            frameC.TabStop = false;
+            // 
+            // seekbarC
+            // 
+            seekbarC.Anchor = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            seekbarC.Location = new Point(12, 323);
+            seekbarC.Name = "seekbarC";
+            seekbarC.Size = new Size(480, 45);
+            seekbarC.TabIndex = 4;
+            // 
+            // playedC
+            // 
+            playedC.AutoSize = true;
+            playedC.Checked = true;
+            playedC.CheckState = CheckState.Checked;
+            playedC.Location = new Point(502, 329);
+            playedC.Name = "playedC";
+            playedC.Size = new Size(15, 14);
+            playedC.TabIndex = 5;
+            playedC.UseVisualStyleBackColor = true;
+            // 
             // Form1
             // 
-            AutoScaleDimensions = new SizeF(10F, 25F);
+            AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(755, 593);
-            Controls.Add(panel1);
+            ClientSize = new Size(528, 359);
+            Controls.Add(playedC);
+            Controls.Add(seekbarC);
+            Controls.Add(frameC);
             Controls.Add(camSourceC);
             Controls.Add(seqSourceC);
             Controls.Add(startC);
             Controls.Add(browseC);
             Controls.Add(imageSourceC);
+            Margin = new Padding(2);
             Name = "Form1";
             Text = "Form1";
+            ((System.ComponentModel.ISupportInitialize)frameC).EndInit();
+            ((System.ComponentModel.ISupportInitialize)seekbarC).EndInit();
             ResumeLayout(false);
             PerformLayout();
         }
@@ -115,7 +151,9 @@
         private Button browseC;
         private RadioButton seqSourceC;
         private RadioButton camSourceC;
-        private Panel panel1;
         private Button startC;
+        private PictureBox frameC;
+        private TrackBar seekbarC;
+        private CheckBox playedC;
     }
 }
