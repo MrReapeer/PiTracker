@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="PiTracker/PiTracker.csproj" />
+  <Project Path="PITrackerCore/PITrackerCore.csproj" />
+</Solution>

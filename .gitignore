@@ -1,0 +1,25 @@
+# .NET / Build Results
+bin/
+obj/
+
+# Visual Studio / IDEs
+.vs/
+.vscode/
+*.user
+*.suo
+*.dbmdl
+
+# NuGet Packages
+packages/
+*.nupkg
+
+# OS Generated Files
+Thumbs.db
+.DS_Store
+
+# Computer Vision Test Media (Prevent huge commits)
+*.mp4
+*.avi
+*.mkv
+*.mov
+test_media/
