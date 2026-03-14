@@ -81,51 +81,51 @@ namespace PiTracker
                     trackerInfoC.Text = $"Position: {t.X:F1}, {t.Y:F1}\nSize: {t.W:F1} x {t.H:F1}\nVelocity: {t.dX:F2}, {t.dY:F2}\nConfidence: {t.Confidence:F3}\nThreshold: {t.BinaryThreshold}";
 
                     // Safely extract the tracked area
-                int rx = (int)Math.Max(0, t.X);
-                int ry = (int)Math.Max(0, t.Y);
-                int rw = (int)Math.Min(frame.Frame.Width - rx, t.W);
-                int rh = (int)Math.Min(frame.Frame.Height - ry, t.H);
+                    int rx = (int)Math.Max(0, t.X);
+                    int ry = (int)Math.Max(0, t.Y);
+                    int rw = (int)Math.Min(frame.Frame.Width - rx, t.W);
+                    int rh = (int)Math.Min(frame.Frame.Height - ry, t.H);
 
-                //if (rw > 0 && rh > 0)
-                //{
-                //    using OpenCvSharp.Mat objMat = frame.Frame[new OpenCvSharp.Rect(rx, ry, rw, rh)];
-                //    InstantDebugObject(objMat, "TrackedObject");
-                //}
-            }
-            else
-            {
-                trackerInfoC.Text = "Not Tracking";
-            }
+                    if (rw > 0 && rh > 0)
+                    {
+                        using OpenCvSharp.Mat objMat = frame.Frame[new OpenCvSharp.Rect(rx, ry, rw, rh)];
+                        InstantDebugObject(objMat, "TrackedObject");
+                    }
+                }
+                else
+                {
+                    trackerInfoC.Text = "Not Tracking";
+                }
 
-            // Dispose the old image to prevent massive GDI+ memory leaks
-            oldImage?.Dispose();
-            frame.Frame.Dispose();
-            frameC.Invalidate();
-        }));
-    }
+                // Dispose the old image to prevent massive GDI+ memory leaks
+                oldImage?.Dispose();
+                frame.Frame.Dispose();
+                frameC.Invalidate();
+            }));
+        }
 
-    private void InstantDebugObject(OpenCvSharp.Mat mat, string label)
-    {
-        var ctrl = new MatMicroDebug();
-        debugs.Invoke(() => 
+        private void InstantDebugObject(OpenCvSharp.Mat mat, string label)
         {
-            debugs.Controls.Add(ctrl);
-            debugs.ScrollControlIntoView(ctrl);
-            if (debugs.Controls.Count > 50)
+            var ctrl = new MatMicroDebug();
+            debugs.Invoke(() =>
             {
-                var old = debugs.Controls[0];
-                debugs.Controls.RemoveAt(0);
-                old.Dispose();
-            }
-        });
-        ctrl.Begin(new Tracker.DebugFrame { Frame = mat, Label = $"{DateTime.Now:HH:mm:ss.fff} - {label}" });
-    }
+                debugs.Controls.Add(ctrl);
+                debugs.ScrollControlIntoView(ctrl);
+                if (debugs.Controls.Count > 50)
+                {
+                    var old = debugs.Controls[0];
+                    debugs.Controls.RemoveAt(0);
+                    old.Dispose();
+                }
+            });
+            ctrl.Begin(new Tracker.DebugFrame { Frame = mat, Label = $"{DateTime.Now:HH:mm:ss.fff} - {label}" });
+        }
 
-    private void PiTracker_OnMicroDebug(Tracker.DebugFrame frame)
-    {
-        //InstantDebugObject(frame.Frame, frame.Label);
-        //frame.Frame.Dispose();
-    }
+        private void PiTracker_OnMicroDebug(Tracker.DebugFrame frame)
+        {
+            InstantDebugObject(frame.Frame, frame.Label);
+            frame.Frame.Dispose();
+        }
         private void PiTracker_OnTrackOutput(Tracker.TrackData output)
         {
         }
@@ -195,7 +195,7 @@ namespace PiTracker
 
         private void playTrackingC_CheckedChanged(object sender, EventArgs e)
         {
-            if (piTracker != null) 
+            if (piTracker != null)
                 piTracker.IsPlayingTracker = playTrackingC.Checked;
         }
     }

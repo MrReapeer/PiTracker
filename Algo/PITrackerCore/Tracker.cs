@@ -44,23 +44,38 @@ namespace PITrackerCore
 
         private Mat DrawDebugFrame(Mat frame, LockParameters prev, LockParameters current)
         {
-            // if (prev != null)
-            // {
-            //     Cv2.Rectangle(frame, new Rect((int)prev.X, (int)prev.Y, (int)prev.W, (int)prev.H), Scalar.Gray, 1);
-            // }
+            // Helper to get center of a rect
+            Point GetCenter(LockParameters p) => new Point((int)(p.X + p.W / 2), (int)(p.Y + p.H / 2));
+
+            // DRAW PREVIOUS STATE (Gray)
+            if (prev != null && prev.IsLocked)
+            {
+                // Last Object
+                //Cv2.Rectangle(frame, new Rect((int)prev.X, (int)prev.Y, (int)prev.W, (int)prev.H), Scalar.Gray, 1);
+                
+                // Last ROI
+                if (prev.LastRoi.Width > 0)
+                    Cv2.Rectangle(frame, prev.LastRoi, Scalar.Gray, 1);
+
+                // Last Velocity Vector
+                //var center = GetCenter(prev);
+                //Cv2.Line(frame, center, new Point(center.X + (int)prev.dX, center.Y + (int)prev.dY), Scalar.Gray, 1);
+            }
+
+            // DRAW CURRENT STATE
             if (current != null && current.IsLocked)
             {
-                if (prev != null)
-                {
-                    // ROI Rect (Centered on previous known position, matching TryLock logic)
-                    int rx = (int)Math.Max(0, (prev.X + prev.W / 2) - (prev.W / 2 + current.RoiOffsetX));
-                    int ry = (int)Math.Max(0, (prev.Y + prev.H / 2) - (prev.H / 2 + current.RoiOffsetY));
-                    int rw = (int)Math.Min(frame.Width - rx, (int)prev.W + (current.RoiOffsetX * 2));
-                    int rh = (int)Math.Min(frame.Height - ry, (int)prev.H + (current.RoiOffsetY * 2));
-                    Cv2.Rectangle(frame, new Rect(rx, ry, rw, rh), Scalar.Yellow, 1);
-                }
+                // Current ROI (Green)
+                if (current.LastRoi.Width > 0)
+                    Cv2.Rectangle(frame, current.LastRoi, Scalar.Green, 1);
 
-                Cv2.Rectangle(frame, new Rect((int)current.X, (int)current.Y, (int)current.W, (int)current.H), Scalar.Green, 2);
+                // Current Object (Blue, thick)
+                Cv2.Rectangle(frame, new Rect((int)current.X, (int)current.Y, (int)current.W, (int)current.H), Scalar.Blue, 2);
+                
+                // Current Velocity Vector (Green)
+                var center = GetCenter(current);
+                Cv2.Line(frame, center, new Point(center.X - (int)current.dX, center.Y - (int)current.dY), Scalar.Green, 1);
+
                 Cv2.PutText(frame, $"Conf: {current.Confidence:F2}", new OpenCvSharp.Point((int)current.X, (int)current.Y - 5), HersheyFonts.HersheySimplex, 0.5, Scalar.Green, 1);
             }
             return frame;
@@ -131,23 +146,32 @@ namespace PITrackerCore
             if (frame == null || frame.Empty()) return new LockParameters { IsLocked = false };
 
             // --- STEP 1: PREDICT & IDENTIFY ROI ---
-            // Predict travel based on velocity (Point + Velocity)
-            int predTravelX = (int)(Math.Abs(last.dX) * cfg.MarginFactor);
-            int predTravelY = (int)(Math.Abs(last.dY) * cfg.MarginFactor);
+            // Estimate 1: Use exact ROI offset of previous
+            int est1OffsetX = last.RoiOffsetX;
+            int est1OffsetY = last.RoiOffsetY;
 
-            // Integrate ROI Offset: Average last offset with predicted travel requirements
-            int newOffsetX = (int)((last.RoiOffsetX * 0.8) + (predTravelX * 0.2));
-            int newOffsetY = (int)((last.RoiOffsetY * 0.8) + (predTravelY * 0.2));
+            // Estimate 2: Extrapolate based on velocity (dX/dY * MarginFactor)
+            int est2OffsetX = (int)(Math.Abs(last.dX) * cfg.MarginFactor) + cfg.MinROI;
+            int est2OffsetY = (int)(Math.Abs(last.dY) * cfg.MarginFactor) + cfg.MinROI;
+
+            // Average the two roi offsets
+            int newOffsetX = (est1OffsetX + est2OffsetX) / 2;
+            int newOffsetY = (est1OffsetY + est2OffsetY) / 2;
             
-            // Clamp to Process Controls
+            // Clamp to min/max allowed
             newOffsetX = Math.Clamp(newOffsetX, cfg.MinROI, cfg.MaxROI);
             newOffsetY = Math.Clamp(newOffsetY, cfg.MinROI, cfg.MaxROI);
 
-            // Define ROI Rect (Centered on last known position)
-            int rx = (int)Math.Max(0, last.X + last.W/2) - (last.W/2 + newOffsetX));
-            int ry = (int)Math.Max(0, last.Y + last.H/2) - (last.H/2 + newOffsetY));
-            int rw = (int)Math.Min(frame.Width - rx, (int)last.W + (newOffsetX * 2));
-            int rh = (int)Math.Min(frame.Height - ry, (int)last.H + (newOffsetY * 2));
+            // Construct new ROI rect centered on last known position
+            int startX = (int)(last.X - newOffsetX);
+            int startY = (int)(last.Y - newOffsetY);
+            int endX = (int)(last.X + last.W + newOffsetX);
+            int endY = (int)(last.Y + last.H + newOffsetY);
+
+            int rx = Math.Max(0, startX);
+            int ry = Math.Max(0, startY);
+            int rw = Math.Min(frame.Width, endX) - rx;
+            int rh = Math.Min(frame.Height, endY) - ry;
 
             Rect roiRect = new Rect(rx, ry, rw, rh);
             using Mat roiGray = new Mat();
@@ -214,7 +238,9 @@ namespace PITrackerCore
                 BinaryThreshold = activeThreshold,
                 Confidence = finalConf,
                 LockTime = DateTime.Now,
-                IsLocked = finalConf > 0.2 // Failsafe threshold
+                IsLocked = finalConf > 0.2, // Failsafe threshold
+                IsManual = false,
+                LastRoi = roiRect
             };
         }
         public Mat VisualizeHistogram(float[] histData, int thresholdValue)
@@ -434,7 +460,7 @@ namespace PITrackerCore
     public class TrackerSettings
     {
         // Process Controls
-        public int MinROI { get; set; } = 20;
+        public int MinROI { get; set; } = 40;
         public int MaxROI { get; set; } = 150;
         public int MinObjSize { get; set; } = 2;
         public int MaxObjSize { get; set; } = 300;
@@ -444,7 +470,7 @@ namespace PITrackerCore
         public float ThresholdWeight { get; set; } = 0.7f; // How much to keep the old threshold
         public float VelocityWeight { get; set; } = 0.6f;  // How much to trust the prediction vs current measurement
         public float ConfidenceWeight { get; set; } = 0.8f; // Smoothing for confidence score
-        public float MarginFactor { get; set; } = 1.5f;    // Extra padding for velocity-based ROI
+        public float MarginFactor { get; set; } = 1.8f;    // Extra padding for velocity-based ROI
     }
 
     public class LockParameters
@@ -471,5 +497,6 @@ namespace PITrackerCore
         public DateTime LockTime { get; set; }
         public bool IsLocked { get; set; }
         public bool IsManual { get; set; }
+        public Rect LastRoi { get; set; }
     }
 }
