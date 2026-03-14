@@ -201,20 +201,20 @@ namespace PITrackerCore
             int medianY = (int)points.OrderBy(p => p.Y).ElementAt(whiteCount / 2).Y;
 
             // Compute Bounding Rect for Size
-            Rect measuredRect = Cv2.BoundingRect(locations);
+            var dimensions = GetObjectDimensionsManual(binary);
 
             // --- STEP 4: KINEMATICS & CONFIDENCE ---
-            double curX = rx + medianX - (measuredRect.Width / 2.0);
-            double curY = ry + medianY - (measuredRect.Height / 2.0);
+            double curX = rx + medianX - (dimensions.Width / 2.0);
+            double curY = ry + medianY - (dimensions.Height / 2.0);
             
             double curDX = last.IsManual ? 0 : curX - last.X;
             double curDY = last.IsManual ? 0 : curY - last.Y;
-            double curDW = last.IsManual ? 0 : measuredRect.Width - last.W;
-            double curDH = last.IsManual ? 0 : measuredRect.Height - last.H;
+            double curDW = last.IsManual ? 0 : dimensions.Width - last.W;
+            double curDH = last.IsManual ? 0 : dimensions.Height - last.H;
 
             // Confidence Calculation
             double velConf = last.dX == 0 ? 1.0 : 1.0 - Math.Min(1.0, Math.Abs((curDX - last.dX) / (last.dX + 0.1)));
-            double sizeConf = last.W == 0 ? 1.0 : 1.0 - Math.Min(1.0, Math.Abs((measuredRect.Width - last.W) / last.W));
+            double sizeConf = last.W == 0 ? 1.0 : 1.0 - Math.Min(1.0, Math.Abs((dimensions.Width - last.W) / last.W));
             double currentFrameConf = (velConf + sizeConf) / 2.0;
             double finalConf = last.IsManual ? currentFrameConf : (last.Confidence * cfg.ConfidenceWeight) + (currentFrameConf * (1 - cfg.ConfidenceWeight));
 
@@ -227,8 +227,8 @@ namespace PITrackerCore
             {
                 X = smoothedX,
                 Y = smoothedY,
-                W = measuredRect.Width,
-                H = measuredRect.Height,
+                W = dimensions.Width,
+                H = dimensions.Height,
                 dX = curDX,
                 dY = curDY,
                 dW = curDW,
@@ -242,6 +242,34 @@ namespace PITrackerCore
                 IsManual = false,
                 LastRoi = roiRect
             };
+        }
+        public (double Width, double Height) GetObjectDimensionsManual(Mat binary)
+        {
+            if (binary == null || binary.Empty()) return (0, 0);
+
+            var indexer = binary.GetGenericIndexer<byte>();
+
+            // Fix 1: Correct the array sizing
+            float[] rowDensity = new float[binary.Rows]; // Vertical distribution
+            float[] colDensity = new float[binary.Cols]; // Horizontal distribution
+
+            for (int y = 0; y < binary.Rows; y++)
+            {
+                for (int x = 0; x < binary.Cols; x++)
+                {
+                    if (indexer[y, x] > 0)
+                    {
+                        // Fix 2: Increment the correct axis
+                        rowDensity[y]++;
+                        colDensity[x]++;
+                    }
+                }
+            }
+
+            // Fix 3: Logic Check
+            // rowDensity.Average() = The average number of white pixels found per row (Object Width)
+            // colDensity.Average() = The average number of white pixels found per column (Object Height)
+            return (rowDensity.Sum() / rowDensity.Count(r => r > 0), colDensity.Sum() / colDensity.Count(c => c > 0));
         }
         public Mat VisualizeHistogram(float[] histData, int thresholdValue)
         {

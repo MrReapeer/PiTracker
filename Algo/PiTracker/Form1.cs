@@ -123,8 +123,8 @@ namespace PiTracker
 
         private void PiTracker_OnMicroDebug(Tracker.DebugFrame frame)
         {
-            InstantDebugObject(frame.Frame, frame.Label);
-            frame.Frame.Dispose();
+            //InstantDebugObject(frame.Frame, frame.Label);
+            //frame.Frame.Dispose();
         }
         private void PiTracker_OnTrackOutput(Tracker.TrackData output)
         {
