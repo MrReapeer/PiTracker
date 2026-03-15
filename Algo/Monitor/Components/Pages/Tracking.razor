@@ -67,12 +67,19 @@
                 <div class="stat-val">@(isLocked ? $"{lp!.X:F1} // {lp.Y:F1}" : "0.0 // 0.0")</div>
             </div>
 
-            @* Two empty thin slots for future plots *@
+            @* Numeric telemetry for Size and Linear Velocity *@
             <div class="stat-box" style="flex-grow: 1; min-height: 60px;">
-                <div class="stat-label">SIZE_PLOT (AWAITING DATA)</div>
+                <div class="stat-label">OBJECT_SIZE (W x H)</div>
+                <div class="stat-val">@(isLocked ? $"{lp!.W:F1} x {lp.H:F1}" : "0.0 x 0.0")</div>
             </div>
             <div class="stat-box" style="flex-grow: 1; min-height: 60px;">
-                <div class="stat-label">VEL_PLOT (AWAITING DATA)</div>
+                <div class="stat-label">LINEAR_VELOCITY</div>
+                <div class="stat-val">
+                    @{
+                        var v = isLocked ? Math.Sqrt(lp!.dX * lp.dX + lp.dY * lp.dY) : 0.0;
+                        @($"{v:F2}")
+                    }
+                </div>
             </div>
         </div>
 
@@ -81,15 +88,17 @@
             @if (!string.IsNullOrEmpty(Vision.LatestFrameBase64))
             {
                 <div class="t-img-container">
-                    <img id="stream-img" src="@Vision.LatestFrameBase64" class="t-stream-img" @onclick="OnImageClick" />
-                    @* Click reticle overlay (Big crosshair) *@
-                    @if (_hasClick)
-                    {
-                        <div style="position: absolute; left: calc(@(_clickRatioX * 100)%); top: calc(@(_clickRatioY * 100)%); pointer-events: none; transform: translate(-50%, -50%); width: 80px; height: 80px;">
-                            <div style="position: absolute; left: 39px; top: 0; width: 2px; height: 100%; background: rgba(0, 230, 118, 0.8); box-shadow: 0 0 4px #00e676;"></div>
-                            <div style="position: absolute; left: 0; top: 39px; width: 100%; height: 2px; background: rgba(0, 230, 118, 0.8); box-shadow: 0 0 4px #00e676;"></div>
-                        </div>
-                    }
+                    <div style="position: relative; display: inline-flex; justify-content: center; align-items: center; max-width: 100%; max-height: 100%;">
+                        <img id="stream-img" src="@Vision.LatestFrameBase64" class="t-stream-img" @onclick="OnImageClick" />
+                        @* Click reticle overlay (Big crosshair) *@
+                        @if (_hasClick)
+                        {
+                            <div style="position: absolute; left: calc(@(_clickRatioX * 100)%); top: calc(@(_clickRatioY * 100)%); pointer-events: none; transform: translate(-50%, -50%); width: 80px; height: 80px;">
+                                <div style="position: absolute; left: 39px; top: 0; width: 2px; height: 100%; background: rgba(0, 230, 118, 0.8); box-shadow: 0 0 4px #00e676;"></div>
+                                <div style="position: absolute; left: 0; top: 39px; width: 100%; height: 2px; background: rgba(0, 230, 118, 0.8); box-shadow: 0 0 4px #00e676;"></div>
+                            </div>
+                        }
+                    </div>
                 </div>
             }
             else
