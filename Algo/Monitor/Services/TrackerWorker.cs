@@ -112,11 +112,8 @@ namespace Monitor.Services
                                 _tracker.ClearTarget();
                         }
 
-                        // ── Draw debug overlay ───────────────────────────────
-                        using var debugFrame = DrawOverlay(frame, result);
-
                         // ── Push to UI (non-blocking) ─────────────────────────
-                        _state.PushFrame(debugFrame, result);
+                        _state.PushFrame(frame.Clone(), result);
                     }
                 }
                 catch (OperationCanceledException)
@@ -195,33 +192,6 @@ namespace Monitor.Services
             try { _camera?.Dispose(); } catch { }
             _camera = null;
             _tracker = null;
-        }
-
-        // ─── Debug Overlay ────────────────────────────────────────────────────
-
-        private static Mat DrawOverlay(Mat frame, LockParameters? lp)
-        {
-            var dbg = frame.Clone();
-            if (lp == null || !lp.IsLocked) return dbg;
-
-            // ROI box (green)
-            if (lp.LastRoi.Width > 0)
-                Cv2.Rectangle(dbg, lp.LastRoi, Scalar.Green, 1);
-
-            // Object box (blue, thick)
-            Cv2.Rectangle(dbg, new Rect((int)lp.X, (int)lp.Y, (int)lp.W, (int)lp.H), Scalar.Blue, 2);
-
-            // Velocity arrow
-            var cx = (int)(lp.X + lp.W / 2);
-            var cy = (int)(lp.Y + lp.H / 2);
-            Cv2.Line(dbg, new Point(cx, cy), new Point(cx - (int)lp.dX, cy - (int)lp.dY), Scalar.Yellow, 1);
-
-            // Confidence text
-            Cv2.PutText(dbg, $"Conf:{lp.Confidence:F2}",
-                new Point((int)lp.X, Math.Max(0, (int)lp.Y - 5)),
-                HersheyFonts.HersheySimplex, 0.45, Scalar.LimeGreen, 1);
-
-            return dbg;
         }
     }
 }

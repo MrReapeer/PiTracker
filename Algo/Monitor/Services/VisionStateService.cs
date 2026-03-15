@@ -68,7 +68,8 @@ namespace Monitor.Services
             try
             {
                 using var resized = ResizeForStream(frame);
-                Cv2.ImEncode(".jpg", resized, out var jpegBytes,
+                using var toSend = DrawOverlay(frame, resized, lockResult);
+                Cv2.ImEncode(".jpg", toSend, out var jpegBytes,
                     new ImageEncodingParam(ImwriteFlags.JpegQuality, StreamConfig.JpegQuality));
                 LatestFrameBase64 = "data:image/jpeg;base64," + Convert.ToBase64String(jpegBytes);
             }
@@ -81,6 +82,49 @@ namespace Monitor.Services
             OnFrameUpdate?.Invoke();
         }
 
+
+        // ─── Debug Overlay ────────────────────────────────────────────────────
+
+        private static Mat DrawOverlay(Mat original, Mat rescaled, LockParameters? lp)
+        {
+            if (lp == null || !lp.IsLocked) return rescaled;
+
+            double sx = (double)rescaled.Width / original.Width;
+            double sy = (double)rescaled.Height / original.Height;
+
+            // Scaled object box
+            int x = (int)(lp.X * sx);
+            int y = (int)(lp.Y * sy);
+            int w = (int)(lp.W * sx);
+            int h = (int)(lp.H * sy);
+
+            // ROI box (green)
+            if (lp.LastRoi.Width > 0)
+            {
+                var scaledRoi = new Rect(
+                    (int)(lp.LastRoi.X * sx),
+                    (int)(lp.LastRoi.Y * sy),
+                    (int)(lp.LastRoi.Width * sx),
+                    (int)(lp.LastRoi.Height * sy)
+                );
+                Cv2.Rectangle(rescaled, scaledRoi, Scalar.Green, 1);
+            }
+
+            // Object box (blue, thick)
+            Cv2.Rectangle(rescaled, new Rect(x, y, w, h), Scalar.Blue, 2);
+
+            // Velocity arrow
+            var cx = (int)(x + w / 2);
+            var cy = (int)(y + h / 2);
+            Cv2.Line(rescaled, new Point(cx, cy), new Point(cx - (int)(lp.dX * sx), cy - (int)(lp.dY * sy)), Scalar.Yellow, 1);
+
+            // Confidence text
+            Cv2.PutText(rescaled, $"Conf:{lp.Confidence:F2}",
+                new Point(x, Math.Max(0, y - 5)),
+                HersheyFonts.HersheySimplex, 0.45, Scalar.LimeGreen, 1);
+
+            return rescaled;
+        }
         private Mat ResizeForStream(Mat src)
         {
             if (StreamConfig.StreamWidth <= 0 || StreamConfig.StreamHeight <= 0)
