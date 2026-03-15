@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="Monitor/Monitor.csproj" Id="0a947ae5-cf83-43bf-81b2-dd0d8265d05a" />
   <Project Path="PiTracker/PiTracker.csproj" />
   <Project Path="PITrackerCore/PITrackerCore.csproj" />
 </Solution>
