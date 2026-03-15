@@ -179,17 +179,17 @@ namespace PiTracker
             debugs.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             debugs.AutoScroll = true;
             debugs.FlowDirection = FlowDirection.TopDown;
-            debugs.Location = new Point(1091, 142);
+            debugs.Location = new Point(1091, 138);
             debugs.Name = "debugs";
-            debugs.Size = new Size(248, 354);
+            debugs.Size = new Size(248, 253);
             debugs.TabIndex = 10;
             // 
             // trackerInfoC
             // 
             trackerInfoC.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            trackerInfoC.Location = new Point(1094, 499);
+            trackerInfoC.Location = new Point(1091, 394);
             trackerInfoC.Name = "trackerInfoC";
-            trackerInfoC.Size = new Size(240, 120);
+            trackerInfoC.Size = new Size(248, 225);
             trackerInfoC.TabIndex = 11;
             trackerInfoC.Text = "label1";
             // 

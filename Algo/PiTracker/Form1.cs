@@ -78,7 +78,7 @@ namespace PiTracker
                 if (piTracker != null && piTracker.currentTarget != null && piTracker.currentTarget.IsLocked)
                 {
                     var t = piTracker.currentTarget;
-                    trackerInfoC.Text = $"Position: {t.X:F1}, {t.Y:F1}\nSize: {t.W:F1} x {t.H:F1}\nVelocity: {t.dX:F2}, {t.dY:F2}\nConfidence: {t.Confidence:F3}\nThreshold: {t.BinaryThreshold}";
+                    trackerInfoC.Text = $"Position: {t.X:F1}, {t.Y:F1}\nSize: {t.W:F1} x {t.H:F1}\nVelocity: {t.dX:F2}, {t.dY:F2}\nConfidence: {t.Confidence:F3}\nThreshold: {t.BinaryThreshold}\nPerf: {t.DebugInfo}";
 
                     // Safely extract the tracked area
                     int rx = (int)Math.Max(0, t.X);

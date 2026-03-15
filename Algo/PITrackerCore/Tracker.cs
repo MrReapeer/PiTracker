@@ -1,6 +1,7 @@
 using OpenCvSharp;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Text;
 using Point = OpenCvSharp.Point;
@@ -145,7 +146,11 @@ namespace PITrackerCore
         {
             if (frame == null || frame.Empty()) return new LockParameters { IsLocked = false };
 
+            Stopwatch sw = Stopwatch.StartNew();
+            StringBuilder sb = new StringBuilder();
+            
             // --- STEP 1: PREDICT & IDENTIFY ROI ---
+            long startT = sw.ElapsedTicks;
             // Estimate 1: Use exact ROI offset of previous
             int est1OffsetX = last.RoiOffsetX;
             int est1OffsetY = last.RoiOffsetY;
@@ -177,6 +182,8 @@ namespace PITrackerCore
             using Mat roiGray = new Mat();
             using Mat roiView = frame[roiRect];
             Cv2.CvtColor(roiView, roiGray, ColorConversionCodes.BGR2GRAY);
+            sb.Append($"ROI:{(sw.ElapsedTicks - startT) * 1000000 / Stopwatch.Frequency}us ");
+            startT = sw.ElapsedTicks;
 
             // --- STEP 2: THRESHOLDING ---
             // Get fresh threshold from Histogram
@@ -186,6 +193,8 @@ namespace PITrackerCore
             using Mat binary = new Mat();
             Cv2.Threshold(roiGray, binary, activeThreshold, 255, ThresholdTypes.BinaryInv);
             InstantDebug(binary, "BinaryROI");
+            sb.Append($"Thresh:{(sw.ElapsedTicks - startT) * 1000000 / Stopwatch.Frequency}us ");
+            startT = sw.ElapsedTicks;
 
             // --- STEP 3: MEASUREMENT (Median and Bounding Rect) ---
             int whiteCount = Cv2.CountNonZero(binary);
@@ -202,6 +211,8 @@ namespace PITrackerCore
 
             // Compute Bounding Rect for Size
             var dimensions = GetObjectDimensionsManual(binary);
+            sb.Append($"Meas:{(sw.ElapsedTicks - startT) * 1000000 / Stopwatch.Frequency}us ");
+            startT = sw.ElapsedTicks;
 
             // --- STEP 4: KINEMATICS & CONFIDENCE ---
             double curX = rx + medianX - (dimensions.Width / 2.0);
@@ -222,6 +233,7 @@ namespace PITrackerCore
             // integration of prediction with measurements
             double smoothedX = last.IsManual ? curX : (curX * (1 - cfg.VelocityWeight)) + ((last.X + last.dX) * cfg.VelocityWeight);
             double smoothedY = last.IsManual ? curY : (curY * (1 - cfg.VelocityWeight)) + ((last.Y + last.dY) * cfg.VelocityWeight);
+            sb.Append($"Predict:{(sw.ElapsedTicks - startT) * 1000000 / Stopwatch.Frequency}us");
 
             return new LockParameters
             {
@@ -240,7 +252,8 @@ namespace PITrackerCore
                 LockTime = DateTime.Now,
                 IsLocked = finalConf > 0.2, // Failsafe threshold
                 IsManual = false,
-                LastRoi = roiRect
+                LastRoi = roiRect,
+                DebugInfo = sb.ToString()
             };
         }
         public (double Width, double Height) GetObjectDimensionsManual(Mat binary)
@@ -526,5 +539,6 @@ namespace PITrackerCore
         public bool IsLocked { get; set; }
         public bool IsManual { get; set; }
         public Rect LastRoi { get; set; }
+        public string DebugInfo { get; set; }
     }
 }
