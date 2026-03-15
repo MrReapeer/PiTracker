@@ -11,5 +11,31 @@ window.trackingHelper = {
             x: Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)),
             y: Math.max(0, Math.min(1, (clientY - rect.top) / rect.height))
         };
+    },
+
+    /**
+     * Toggles fullscreen on an element or the document itself.
+     */
+    toggleFullscreen: function (elementId) {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+            const el = elementId ? document.getElementById(elementId) : document.documentElement;
+            if (!el) return;
+
+            if (el.requestFullscreen) {
+                el.requestFullscreen();
+            } else if (el.webkitRequestFullscreen) {
+                el.webkitRequestFullscreen();
+            } else if (el.msRequestFullscreen) {
+                el.msRequestFullscreen();
+            }
+        } else {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+            }
+        }
     }
 };

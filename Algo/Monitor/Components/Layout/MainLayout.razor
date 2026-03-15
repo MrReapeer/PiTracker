@@ -1,29 +1,60 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 
-@* Required *@
-<MudThemeProvider />
+<MudThemeProvider Theme="_armyTheme" IsDarkMode="true" />
 <MudPopoverProvider />
-
-@* Needed for dialogs *@
 <MudDialogProvider />
-
-@* Needed for snackbars *@
 <MudSnackbarProvider />
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<MudLayout>
+    <MudAppBar Elevation="1" Color="Color.Surface" Fixed="true">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Primary" aria-label="Menu" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
+        <MudText Typo="Typo.h6" Class="ml-3" Color="Color.Primary" Style="font-family:monospace"><b>PiTracker</b>_MONITOR</MudText>
+        <MudSpacer />
+    </MudAppBar>
 
-    <main>
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
-</div>
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="2" Color="Color.Surface" Variant="@DrawerVariant.Responsive">
+        <NavMenu />
+    </MudDrawer>
+
+    <MudMainContent Class="d-flex flex-column overflow-hidden" Style="height: 100vh;">
+        @Body
+    </MudMainContent>
+</MudLayout>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+<style>
+    /* Prevent default Blazor templated margin/padding that breaks fullscreen */
+    body, html { margin: 0; padding: 0; overflow: hidden; background: #050806; }
+</style>
+
+@code {
+    private bool _drawerOpen = false;
+
+    private void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+
+    private MudTheme _armyTheme = new MudTheme()
+    {
+        PaletteDark = new PaletteDark()
+        {
+            Primary = "#00e676", // Bright phosphor green
+            Secondary = "#4caf50",
+            Background = "#050806", // Near black with green tint
+            Surface = "#0c120e", // Slightly lighter for panels
+            AppbarBackground = "#030504",
+            AppbarText = "#00e676",
+            DrawerBackground = "#050806",
+            TextPrimary = "#c8e6c9", // Pale green text
+            TextSecondary = "#81c784",
+            Error = "#ff1744", // Bright red for stark contrast
+            Warning = "#ff9100" // Bright amber
+        }
+    };
+}

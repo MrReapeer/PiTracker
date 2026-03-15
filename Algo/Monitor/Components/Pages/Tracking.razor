@@ -7,17 +7,14 @@
 
 <PageTitle>Tracking – PiTracker Monitor</PageTitle>
 
-<MudPaper Class="pa-2" Elevation="0" Style="background:transparent">
+<div class="d-flex flex-column" style="height: 100%; width: 100%; background: #050806;">
 
     @* ── Top toolbar ──────────────────────────────────────────────────── *@
-    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
-
-        <MudText Typo="Typo.h6" Color="Color.Primary"><b>PiTracker</b> Monitor</MudText>
-
-        <MudSpacer />
+    <MudPaper Class="pa-2 px-4 d-flex align-center flex-shrink-0" Elevation="4" Style="background: #0c120e; z-index: 10;">
+        <MudText Typo="Typo.h6" Color="Color.Primary" Class="mr-6" Style="font-family: monospace;"><b>TRACKING</b>_UPLINK</MudText>
 
         @* Mode toggle *@
-        <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small">
+        <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small" Class="mr-4">
             <MudButton Color="@(Vision.Mode == OperationMode.Demo ? Color.Primary : Color.Default)"
                        OnClick="@(() => SetMode(OperationMode.Demo))">Demo</MudButton>
             <MudButton Color="@(Vision.Mode == OperationMode.Live ? Color.Success : Color.Default)"
@@ -25,83 +22,95 @@
         </MudButtonGroup>
 
         @* Lock controls *@
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
                    StartIcon="@Icons.Material.Filled.GpsFixed"
                    Disabled="@(!_hasClick)"
-                   OnClick="SendLock">Lock</MudButton>
+                   OnClick="SendLock" Class="mr-2 px-6" Style="font-weight: 900; letter-spacing: 2px;">LOCK</MudButton>
 
-        <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+        <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Medium"
                    StartIcon="@Icons.Material.Filled.GpsOff"
                    OnClick="@(() => Vision.ClearLock())">Clear</MudButton>
 
+        <MudSpacer />
+
+        <MudButton Variant="Variant.Text" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Fullscreen"
+                   OnClick="RequestFullscreen">Fullscreen</MudButton>
+
         @* FPS badge *@
-        <MudChip T="string" Size="Size.Small" Color="Color.Dark">@($"{Vision.FpsActual:F1} fps")</MudChip>
-    </MudStack>
+        <MudChip T="string" Size="Size.Small" Color="Color.Dark" Class="ml-4" Style="font-family: monospace;">@($"{Vision.FpsActual:F1} fps")</MudChip>
+    </MudPaper>
 
     @* ── Camera error banner ──────────────────────────────────────────── *@
     @if (!Vision.IsCameraAvailable)
     {
-        <MudAlert Severity="Severity.Error" Class="mb-2" Icon="@Icons.Material.Filled.VideocamOff">
+        <MudAlert Severity="Severity.Error" Class="m-2 flex-shrink-0" Icon="@Icons.Material.Filled.VideocamOff">
             @Vision.CameraError
         </MudAlert>
     }
 
-    @* ── Stream image ─────────────────────────────────────────────────── *@
-    <MudPaper Elevation="4" Style="position:relative;background:#111;border-radius:8px;overflow:hidden;">
+    @* ── Stream image (Centered) ──────────────────────────────────────── *@
+    <div style="flex-grow: 1; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; background: #000;">
         @if (!string.IsNullOrEmpty(Vision.LatestFrameBase64))
         {
-            <img id="stream-img"
-                 src="@Vision.LatestFrameBase64"
-                 style="width:100%;display:block;cursor:crosshair;user-select:none;"
-                 @onclick="OnImageClick" />
+            <div style="position: relative; display: inline-block;">
+                <img id="stream-img"
+                     src="@Vision.LatestFrameBase64"
+                     style="max-width: 100vw; max-height: calc(100vh - 150px); width: auto; height: auto; display: block; cursor: crosshair; user-select: none;"
+                     @onclick="OnImageClick" />
 
-            @* Click reticle overlay *@
-            @if (_hasClick)
-            {
-                <div style="position:absolute;
-                            left:calc(@(_clickRatioX * 100)% - 8px);
-                            top:calc(@(_clickRatioY * 100)% - 8px);
-                            width:16px;height:16px;
-                            border:2px solid #00e676;border-radius:50%;
-                            pointer-events:none;"></div>
-            }
+                @* Click reticle overlay (Big crosshair) *@
+                @if (_hasClick)
+                {
+                    <div style="position: absolute;
+                                left: calc(@(_clickRatioX * 100)%);
+                                top: calc(@(_clickRatioY * 100)%);
+                                pointer-events: none;
+                                transform: translate(-50%, -50%);
+                                width: 80px; height: 80px;">
+                        @* Vertical line *@
+                        <div style="position: absolute; left: 39px; top: 0; width: 2px; height: 100%; background: rgba(0, 230, 118, 0.8); box-shadow: 0 0 4px #00e676;"></div>
+                        @* Horizontal line *@
+                        <div style="position: absolute; left: 0; top: 39px; width: 100%; height: 2px; background: rgba(0, 230, 118, 0.8); box-shadow: 0 0 4px #00e676;"></div>
+                    </div>
+                }
+            </div>
         }
         else
         {
-            <div style="width:100%;height:360px;display:flex;align-items:center;justify-content:center;">
-                <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
-                <MudText Class="ml-4" Color="Color.Secondary">Waiting for frames…</MudText>
+            <div style="display: flex; flex-direction: column; align-items: center;">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" Class="mb-4" />
+                <MudText Color="Color.Primary" Style="font-family: monospace; letter-spacing: 2px;">WAITING_FOR_SIGNAL...</MudText>
             </div>
         }
-    </MudPaper>
+    </div>
 
     @* ── Status bar ───────────────────────────────────────────────────── *@
     @if (Vision.CurrentLock is { } lp && lp.IsLocked)
     {
-        <MudPaper Class="pa-3 mt-2" Elevation="2" Style="background:#1a1a2e">
+        <MudPaper Class="pa-2 px-4 flex-shrink-0" Elevation="4" Style="background: #0c120e; border-top: 1px solid #1b5e20;">
             <MudGrid Spacing="1">
                 <MudItem xs="6" sm="3">
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">Position</MudText>
-                    <MudText Typo="Typo.body2">X: @lp.X.ToString("F1")  Y: @lp.Y.ToString("F1")</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace;">POS_X // POS_Y</MudText>
+                    <MudText Typo="Typo.body2" Style="font-family: monospace; color: #00e676;">@lp.X.ToString("F1") // @lp.Y.ToString("F1")</MudText>
                 </MudItem>
                 <MudItem xs="6" sm="3">
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">Size</MudText>
-                    <MudText Typo="Typo.body2">W: @lp.W.ToString("F1")  H: @lp.H.ToString("F1")</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace;">WID // HGT</MudText>
+                    <MudText Typo="Typo.body2" Style="font-family: monospace; color: #00e676;">@lp.W.ToString("F1") // @lp.H.ToString("F1")</MudText>
                 </MudItem>
                 <MudItem xs="6" sm="3">
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">Velocity</MudText>
-                    <MudText Typo="Typo.body2">dX: @lp.dX.ToString("F1")  dY: @lp.dY.ToString("F1")</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace;">VEL_X // VEL_Y</MudText>
+                    <MudText Typo="Typo.body2" Style="font-family: monospace; color: #00e676;">@lp.dX.ToString("F1") // @lp.dY.ToString("F1")</MudText>
                 </MudItem>
                 <MudItem xs="6" sm="3">
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">Confidence</MudText>
-                    <MudProgressLinear Color="@ConfColor(lp.Confidence)" Value="@(lp.Confidence * 100)" Rounded="true" />
-                    <MudText Typo="Typo.body2">@lp.Confidence.ToString("P0")</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace;">CONFIDENCE</MudText>
+                    <MudProgressLinear Color="@ConfColor(lp.Confidence)" Value="@(lp.Confidence * 100)" Rounded="true" Class="my-1" />
+                    <MudText Typo="Typo.body2" Style="font-family: monospace;">@lp.Confidence.ToString("P0")</MudText>
                 </MudItem>
                 @if (!string.IsNullOrEmpty(lp.DebugInfo))
                 {
                     <MudItem xs="12">
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">Debug</MudText>
-                        <MudText Typo="Typo.caption" Style="font-family:monospace">@lp.DebugInfo</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace;">DBUG_SYS_LOG</MudText>
+                        <MudText Typo="Typo.caption" Style="font-family: monospace; color: #81c784;">> @lp.DebugInfo</MudText>
                     </MudItem>
                 }
             </MudGrid>
@@ -109,17 +118,19 @@
     }
     else
     {
-        <MudAlert Class="mt-2" Severity="Severity.Info" Dense="true">
-            Click on the stream image to aim, then press <b>Lock</b> to begin tracking.
-        </MudAlert>
+        <MudPaper Class="pa-1 text-center flex-shrink-0" Elevation="0" Style="background: #050806;">
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace; letter-spacing: 1px;">
+                > SYSTEM IDLE: SELECT TARGET IN VIEWPORT AND ENGAGE LOCK
+            </MudText>
+        </MudPaper>
     }
-</MudPaper>
+</div>
 
 @code {
     // ── Click state ───────────────────────────────────────────────────────────
-    private bool _hasClick;
-    private double _clickRatioX;
-    private double _clickRatioY;
+    private bool _hasClick = true; // Auto-enable click for the center initially
+    private double _clickRatioX = 0.5; // Default center X
+    private double _clickRatioY = 0.5; // Default center Y
 
     // ── Frame dimensions tracked from camera ──────────────────────────────────
     private int _frameWidth  => Vision.NativeWidth;
@@ -138,8 +149,14 @@
 
     private void OnFrameArrived()
     {
-        // InvokeAsync is safe to call from background threads
         InvokeAsync(StateHasChanged);
+    }
+
+    // ── Fullscreen Request ────────────────────────────────────────────────────
+    private async Task RequestFullscreen()
+    {
+        // Calling our registered JS helper to pop the browser window to full screen.
+        await JS.InvokeVoidAsync("trackingHelper.toggleFullscreen", null);
     }
 
     // ── Click-to-aim ──────────────────────────────────────────────────────────
