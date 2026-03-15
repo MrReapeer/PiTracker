@@ -1,4 +1,4 @@
-﻿using OpenCvSharp;
+using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -94,6 +94,7 @@ namespace PITrackerCore
         }
         public FileFrame[] Files;
         private int currentIndex = 0;
+        public int CurrentIndex => currentIndex;
         public void SetIndex(int index)
         {
             currentIndex = index;

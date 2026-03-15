@@ -512,6 +512,11 @@ namespace PITrackerCore
         public float VelocityWeight { get; set; } = 0.6f;  // How much to trust the prediction vs current measurement
         public float ConfidenceWeight { get; set; } = 0.8f; // Smoothing for confidence score
         public float MarginFactor { get; set; } = 1.8f;    // Extra padding for velocity-based ROI
+
+        // Demo Source
+        /// <summary>Path to a directory of .jpg frames used in Demo mode.</summary>
+        public string DemoFramesPath { get; set; } = System.IO.Path.Combine(
+            System.AppContext.BaseDirectory, "demo_frames");
     }
 
     public class LockParameters

@@ -1,4 +1,95 @@
-﻿@page "/settings"
+@page "/settings"
 @rendermode InteractiveServer
+@inject VisionStateService Vision
 
-<PageTitle>Settings</PageTitle>
+<PageTitle>Settings – PiTracker Monitor</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-4" Color="Color.Primary">Settings</MudText>
+
+<MudGrid Spacing="3">
+
+    @* ── Tracker Parameters ────────────────────────────────────────────── *@
+    <MudItem xs="12" sm="6">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-3">Tracker Parameters</MudText>
+
+            <MudNumericField T="int" Label="Min ROI" @bind-Value="Vision.Settings.MinROI"
+                             Min="5" Max="500" Step="5" Variant="Variant.Outlined" Class="mb-3"
+                             HelperText="Minimum search-window offset (px)" />
+
+            <MudNumericField T="int" Label="Max ROI" @bind-Value="Vision.Settings.MaxROI"
+                             Min="10" Max="1000" Step="10" Variant="Variant.Outlined" Class="mb-3"
+                             HelperText="Maximum search-window offset (px)" />
+
+            <MudNumericField T="int" Label="Min Object Size" @bind-Value="Vision.Settings.MinObjSize"
+                             Min="1" Max="5000" Step="1" Variant="Variant.Outlined" Class="mb-3"
+                             HelperText="Minimum white-pixel count to consider a valid object" />
+
+            <MudNumericField T="int" Label="Max Object Size" @bind-Value="Vision.Settings.MaxObjSize"
+                             Min="1" Max="50000" Step="10" Variant="Variant.Outlined" Class="mb-3"
+                             HelperText="Maximum white-pixel count (unused currently; for future guard)" />
+
+            <MudNumericField T="int" Label="Histogram Smoothing Window" @bind-Value="Vision.Settings.HistogramSmoothingWindow"
+                             Min="0" Max="20" Step="1" Variant="Variant.Outlined" Class="mb-0"
+                             HelperText="Kernel half-width for histogram pre-smoothing" />
+        </MudPaper>
+    </MudItem>
+
+    @* ── Mixing Weights ────────────────────────────────────────────────── *@
+    <MudItem xs="12" sm="6">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-3">Mixing Weights</MudText>
+
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Threshold Weight — @Vision.Settings.ThresholdWeight.ToString("F2")</MudText>
+            <MudSlider T="float" @bind-Value="Vision.Settings.ThresholdWeight" Min="0f" Max="1f" Step="0.05f"
+                       Class="mb-3" Color="Color.Primary" />
+
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Velocity Weight — @Vision.Settings.VelocityWeight.ToString("F2")</MudText>
+            <MudSlider T="float" @bind-Value="Vision.Settings.VelocityWeight" Min="0f" Max="1f" Step="0.05f"
+                       Class="mb-3" Color="Color.Primary" />
+
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Confidence Weight — @Vision.Settings.ConfidenceWeight.ToString("F2")</MudText>
+            <MudSlider T="float" @bind-Value="Vision.Settings.ConfidenceWeight" Min="0f" Max="1f" Step="0.05f"
+                       Class="mb-3" Color="Color.Primary" />
+
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Margin Factor — @Vision.Settings.MarginFactor.ToString("F2")</MudText>
+            <MudSlider T="float" @bind-Value="Vision.Settings.MarginFactor" Min="0.5f" Max="5f" Step="0.1f"
+                       Class="mb-0" Color="Color.Primary" />
+        </MudPaper>
+    </MudItem>
+
+    @* ── Stream Output ─────────────────────────────────────────────────── *@
+    <MudItem xs="12" sm="6">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-3">Stream Output (UI)</MudText>
+
+            <MudNumericField T="int" Label="Stream Width (px)" @bind-Value="Vision.StreamConfig.StreamWidth"
+                             Min="0" Max="3840" Step="80" Variant="Variant.Outlined" Class="mb-3"
+                             HelperText="0 = native camera resolution" />
+
+            <MudNumericField T="int" Label="Stream Height (px)" @bind-Value="Vision.StreamConfig.StreamHeight"
+                             Min="0" Max="2160" Step="60" Variant="Variant.Outlined" Class="mb-3"
+                             HelperText="0 = native camera resolution" />
+
+            <MudText Typo="Typo.caption" Color="Color.Secondary">JPEG Quality — @Vision.StreamConfig.JpegQuality</MudText>
+            <MudSlider T="int" @bind-Value="Vision.StreamConfig.JpegQuality" Min="10" Max="100" Step="5"
+                       Class="mb-0" Color="Color.Success" />
+        </MudPaper>
+    </MudItem>
+
+    @* ── Demo Source ───────────────────────────────────────────────────── *@
+    <MudItem xs="12" sm="6">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-3">Demo Source</MudText>
+
+            <MudTextField Label="Demo Frames Path" @bind-Value="Vision.Settings.DemoFramesPath"
+                          Variant="Variant.Outlined" Lines="2" Class="mb-3"
+                          HelperText="Absolute path to a directory containing .jpg frame files" />
+
+            <MudAlert Severity="Severity.Info" Dense="true">
+                After changing the path, switch to <b>Live</b> mode and back to <b>Demo</b> on the Tracking page to reload.
+            </MudAlert>
+        </MudPaper>
+    </MudItem>
+
+</MudGrid>

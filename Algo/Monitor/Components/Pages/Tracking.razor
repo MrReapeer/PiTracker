@@ -1,4 +1,175 @@
-﻿@page "/"
+@page "/"
+@rendermode InteractiveServer
+@inject VisionStateService Vision
+@inject TrackerWorker Worker
+@inject IJSRuntime JS
+@implements IDisposable
 
-<PageTitle>Tracking</PageTitle>
-<MudButton Variant="Variant.Outlined">This is a bud button</MudButton>
+<PageTitle>Tracking – PiTracker Monitor</PageTitle>
+
+<MudPaper Class="pa-2" Elevation="0" Style="background:transparent">
+
+    @* ── Top toolbar ──────────────────────────────────────────────────── *@
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
+
+        <MudText Typo="Typo.h6" Color="Color.Primary"><b>PiTracker</b> Monitor</MudText>
+
+        <MudSpacer />
+
+        @* Mode toggle *@
+        <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small">
+            <MudButton Color="@(Vision.Mode == OperationMode.Demo ? Color.Primary : Color.Default)"
+                       OnClick="@(() => SetMode(OperationMode.Demo))">Demo</MudButton>
+            <MudButton Color="@(Vision.Mode == OperationMode.Live ? Color.Success : Color.Default)"
+                       OnClick="@(() => SetMode(OperationMode.Live))">Live</MudButton>
+        </MudButtonGroup>
+
+        @* Lock controls *@
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                   StartIcon="@Icons.Material.Filled.GpsFixed"
+                   Disabled="@(!_hasClick)"
+                   OnClick="SendLock">Lock</MudButton>
+
+        <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                   StartIcon="@Icons.Material.Filled.GpsOff"
+                   OnClick="@(() => Vision.ClearLock())">Clear</MudButton>
+
+        @* FPS badge *@
+        <MudChip T="string" Size="Size.Small" Color="Color.Dark">@($"{Vision.FpsActual:F1} fps")</MudChip>
+    </MudStack>
+
+    @* ── Camera error banner ──────────────────────────────────────────── *@
+    @if (!Vision.IsCameraAvailable)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-2" Icon="@Icons.Material.Filled.VideocamOff">
+            @Vision.CameraError
+        </MudAlert>
+    }
+
+    @* ── Stream image ─────────────────────────────────────────────────── *@
+    <MudPaper Elevation="4" Style="position:relative;background:#111;border-radius:8px;overflow:hidden;">
+        @if (!string.IsNullOrEmpty(Vision.LatestFrameBase64))
+        {
+            <img id="stream-img"
+                 src="@Vision.LatestFrameBase64"
+                 style="width:100%;display:block;cursor:crosshair;user-select:none;"
+                 @onclick="OnImageClick" />
+
+            @* Click reticle overlay *@
+            @if (_hasClick)
+            {
+                <div style="position:absolute;
+                            left:calc(@(_clickRatioX * 100)% - 8px);
+                            top:calc(@(_clickRatioY * 100)% - 8px);
+                            width:16px;height:16px;
+                            border:2px solid #00e676;border-radius:50%;
+                            pointer-events:none;"></div>
+            }
+        }
+        else
+        {
+            <div style="width:100%;height:360px;display:flex;align-items:center;justify-content:center;">
+                <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+                <MudText Class="ml-4" Color="Color.Secondary">Waiting for frames…</MudText>
+            </div>
+        }
+    </MudPaper>
+
+    @* ── Status bar ───────────────────────────────────────────────────── *@
+    @if (Vision.CurrentLock is { } lp && lp.IsLocked)
+    {
+        <MudPaper Class="pa-3 mt-2" Elevation="2" Style="background:#1a1a2e">
+            <MudGrid Spacing="1">
+                <MudItem xs="6" sm="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Position</MudText>
+                    <MudText Typo="Typo.body2">X: @lp.X.ToString("F1")  Y: @lp.Y.ToString("F1")</MudText>
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Size</MudText>
+                    <MudText Typo="Typo.body2">W: @lp.W.ToString("F1")  H: @lp.H.ToString("F1")</MudText>
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Velocity</MudText>
+                    <MudText Typo="Typo.body2">dX: @lp.dX.ToString("F1")  dY: @lp.dY.ToString("F1")</MudText>
+                </MudItem>
+                <MudItem xs="6" sm="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Confidence</MudText>
+                    <MudProgressLinear Color="@ConfColor(lp.Confidence)" Value="@(lp.Confidence * 100)" Rounded="true" />
+                    <MudText Typo="Typo.body2">@lp.Confidence.ToString("P0")</MudText>
+                </MudItem>
+                @if (!string.IsNullOrEmpty(lp.DebugInfo))
+                {
+                    <MudItem xs="12">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Debug</MudText>
+                        <MudText Typo="Typo.caption" Style="font-family:monospace">@lp.DebugInfo</MudText>
+                    </MudItem>
+                }
+            </MudGrid>
+        </MudPaper>
+    }
+    else
+    {
+        <MudAlert Class="mt-2" Severity="Severity.Info" Dense="true">
+            Click on the stream image to aim, then press <b>Lock</b> to begin tracking.
+        </MudAlert>
+    }
+</MudPaper>
+
+@code {
+    // ── Click state ───────────────────────────────────────────────────────────
+    private bool _hasClick;
+    private double _clickRatioX;
+    private double _clickRatioY;
+
+    // ── Frame dimensions tracked from img natural size via JS ─────────────────
+    // We use the stream config dimensions as reference for lock coord mapping.
+    private int _frameWidth  => Vision.StreamConfig.StreamWidth  > 0 ? Vision.StreamConfig.StreamWidth  : 640;
+    private int _frameHeight => Vision.StreamConfig.StreamHeight > 0 ? Vision.StreamConfig.StreamHeight : 480;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    protected override void OnInitialized()
+    {
+        Vision.OnFrameUpdate += OnFrameArrived;
+    }
+
+    public void Dispose()
+    {
+        Vision.OnFrameUpdate -= OnFrameArrived;
+    }
+
+    private void OnFrameArrived()
+    {
+        // InvokeAsync is safe to call from background threads
+        InvokeAsync(StateHasChanged);
+    }
+
+    // ── Click-to-aim ──────────────────────────────────────────────────────────
+    private async Task OnImageClick(MouseEventArgs e)
+    {
+        // Use JS interop to get ratio within the img element (handles CSS scaling)
+        var result = await JS.InvokeAsync<ClickRatio>("trackingHelper.getClickRatio",
+            "stream-img", e.ClientX, e.ClientY);
+        _clickRatioX = result.X;
+        _clickRatioY = result.Y;
+        _hasClick = true;
+        StateHasChanged();
+    }
+
+    private void SendLock()
+    {
+        if (_hasClick)
+            Vision.ProcessLockRequest(_clickRatioX, _clickRatioY, _frameWidth, _frameHeight);
+    }
+
+    private void SetMode(OperationMode mode)
+    {
+        Vision.Mode = mode;
+        Vision.ClearLock();
+    }
+
+    private Color ConfColor(double conf) =>
+        conf >= 0.7 ? Color.Success : conf >= 0.4 ? Color.Warning : Color.Error;
+
+    // ── JS interop DTOs ───────────────────────────────────────────────────────
+    private class ClickRatio { public double X { get; set; } public double Y { get; set; } }
+}

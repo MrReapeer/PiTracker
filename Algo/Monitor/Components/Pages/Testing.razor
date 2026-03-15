@@ -1,3 +1,142 @@
-﻿@page "/testing"
+@page "/testing"
+@rendermode InteractiveServer
+@inject VisionStateService Vision
+@inject TrackerWorker Worker
+@implements IDisposable
 
-<PageTitle>Testing</PageTitle>
+<PageTitle>Testing – PiTracker Monitor</PageTitle>
+
+<MudText Typo="Typo.h5" Class="mb-4" Color="Color.Primary">Testing / VCR</MudText>
+
+@if (Vision.Mode != OperationMode.Demo)
+{
+    <MudAlert Severity="Severity.Warning" Class="mb-4">
+        VCR controls are only active in <b>Demo</b> mode.
+        Switch to Demo on the <MudLink Href="/">Tracking</MudLink> page.
+    </MudAlert>
+}
+
+<MudPaper Class="pa-4" Elevation="2" Style="@(Vision.Mode != OperationMode.Demo ? "opacity:0.5;pointer-events:none" : "")">
+
+    @* ── Transport buttons ─────────────────────────────────────────────── *@
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+
+        <MudIconButton Icon="@Icons.Material.Filled.SkipPrevious" Size="Size.Large"
+                       aria-label="First Frame" OnClick="GoFirst" />
+
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Medium"
+                       aria-label="Step Back" OnClick="StepBack" />
+
+        @if (Worker.IsPlaying)
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.Pause" Size="Size.Large"
+                           Color="Color.Warning" aria-label="Pause" OnClick="Pause" />
+        }
+        else
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Large"
+                           Color="Color.Success" aria-label="Play" OnClick="Play" />
+        }
+
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Medium"
+                       aria-label="Step Forward" OnClick="StepForward" />
+
+        <MudIconButton Icon="@Icons.Material.Filled.SkipNext" Size="Size.Large"
+                       aria-label="Last Frame" OnClick="GoLast" />
+
+        <MudSpacer />
+
+        <MudChip T="string" Color="Color.Dark" Size="Size.Small">
+            Frame @Worker.CurrentFrameIndex / @(Worker.TotalFrameCount - 1)
+        </MudChip>
+    </MudStack>
+
+    @* ── Seek slider ───────────────────────────────────────────────────── *@
+    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">Seek</MudText>
+    <MudSlider T="int"
+               Value="@Worker.CurrentFrameIndex"
+               ValueChanged="OnSeek"
+               Min="0"
+               Max="@Math.Max(0, Worker.TotalFrameCount - 1)"
+               Step="1"
+               Color="Color.Primary"
+               Disabled="@(Worker.TotalFrameCount == 0)"
+               Class="mb-4" />
+
+    @* ── Info table ────────────────────────────────────────────────────── *@
+    <MudDivider Class="mb-3" />
+    <MudGrid Spacing="2">
+        <MudItem xs="6" sm="3">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Total Frames</MudText>
+            <MudText Typo="Typo.body1">@Worker.TotalFrameCount</MudText>
+        </MudItem>
+        <MudItem xs="6" sm="3">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Current Index</MudText>
+            <MudText Typo="Typo.body1">@Worker.CurrentFrameIndex</MudText>
+        </MudItem>
+        <MudItem xs="6" sm="3">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Playback</MudText>
+            <MudChip T="string" Size="Size.Small" Color="@(Worker.IsPlaying ? Color.Success : Color.Warning)">
+                @(Worker.IsPlaying ? "Playing" : "Paused")
+            </MudChip>
+        </MudItem>
+        <MudItem xs="6" sm="3">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Stream FPS</MudText>
+            <MudText Typo="Typo.body1">@Vision.FpsActual.ToString("F1")</MudText>
+        </MudItem>
+    </MudGrid>
+
+    @* ── Demo path reminder ────────────────────────────────────────────── *@
+    <MudAlert Class="mt-3" Severity="Severity.Info" Dense="true">
+        Demo path: <code>@Vision.Settings.DemoFramesPath</code>
+        &nbsp;–&nbsp; Change it in <MudLink Href="/settings">Settings</MudLink>.
+    </MudAlert>
+</MudPaper>
+
+@code {
+    private System.Timers.Timer? _refreshTimer;
+
+    protected override void OnInitialized()
+    {
+        Vision.OnFrameUpdate += OnFrameArrived;
+        // Also poll every 200 ms so the seek slider stays in sync
+        _refreshTimer = new System.Timers.Timer(200);
+        _refreshTimer.Elapsed += (_, _) => InvokeAsync(StateHasChanged);
+        _refreshTimer.Start();
+    }
+
+    public void Dispose()
+    {
+        Vision.OnFrameUpdate -= OnFrameArrived;
+        _refreshTimer?.Dispose();
+    }
+
+    private void OnFrameArrived() => InvokeAsync(StateHasChanged);
+
+    // ── VCR actions ───────────────────────────────────────────────────────────
+    private void Play()    { Worker.IsPlaying = true;  StateHasChanged(); }
+    private void Pause()   { Worker.IsPlaying = false; StateHasChanged(); }
+    private void GoFirst() { Pause(); Worker.Seek(0); }
+    private void GoLast()  { Pause(); Worker.Seek(Worker.TotalFrameCount - 1); }
+
+    private void StepBack()
+    {
+        Pause();
+        var next = Math.Max(0, Worker.CurrentFrameIndex - 1);
+        Worker.Seek(next);
+    }
+
+    private void StepForward()
+    {
+        Pause();
+        var next = Math.Min(Worker.TotalFrameCount - 1, Worker.CurrentFrameIndex + 1);
+        Worker.Seek(next);
+    }
+
+    private void OnSeek(int value)
+    {
+        Pause();
+        Worker.Seek(value);
+        StateHasChanged();
+    }
+}
