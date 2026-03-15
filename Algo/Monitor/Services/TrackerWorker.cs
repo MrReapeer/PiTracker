@@ -79,11 +79,11 @@ namespace Monitor.Services
                     }
 
                     // ── Paused in demo mode: idle ─────────────────────────────
-                    if (!IsPlaying && !_seekRequested && _currentMode == OperationMode.Demo)
-                    {
-                        await Task.Delay(30, stoppingToken);
-                        continue;
-                    }
+                    //if (!IsPlaying && !_seekRequested && _currentMode == OperationMode.Demo)
+                    //{
+                    //    await Task.Delay(30, stoppingToken);
+                    //    continue;
+                    //}
                     _seekRequested = false;
 
                     // ── Grab frame ────────────────────────────────────────────
@@ -153,6 +153,14 @@ namespace Monitor.Services
                 }
 
                 var seq = new ImageSequenceSource(path);
+                if (seq.Files == null || seq.Files.Length == 0)
+                {
+                    _logger.LogWarning("No image frames found in: {Path}", path);
+                    _state.ReportCameraError($"No .jpg, .jpeg, .png, or .bmp frames found in: {path}");
+                    _camera = null;
+                    return Task.CompletedTask;
+                }
+
                 seq.AutoIncrement = IsPlaying;
                 _camera = seq;
                 _state.ReportCameraOk();

@@ -112,11 +112,15 @@ namespace PITrackerCore
             }
             else if (Directory.Exists(dirOrFile))
             {
-                Files = Directory.GetFiles(dirOrFile, "*.jpg").Select((f) => new FileFrame(f)).ToArray();
+                var extensions = new[] { "*.jpg", "*.jpeg", "*.png", "*.bmp" };
+                Files = extensions.SelectMany(ext => Directory.GetFiles(dirOrFile, ext))
+                                  .OrderBy(f => f)
+                                  .Select(f => new FileFrame(f))
+                                  .ToArray();
             }
             else
             {
-                Files = new FileFrame[0];
+                Files = Array.Empty<FileFrame>();
             }
         }
 
@@ -136,6 +140,13 @@ namespace PITrackerCore
             while ((DateTime.Now - lastFrame).TotalMilliseconds < 30) // Limit to ~30 FPS
                 await Task.Delay(5);
             lastFrame = DateTime.Now;
+
+            if (Files == null || Files.Length == 0)
+                return null;
+
+            if (currentIndex >= Files.Length)
+                currentIndex = 0;
+
             var f = Files[currentIndex].Frame;
             if (AutoIncrement)
             {

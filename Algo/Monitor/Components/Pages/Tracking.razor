@@ -121,10 +121,9 @@
     private double _clickRatioX;
     private double _clickRatioY;
 
-    // ── Frame dimensions tracked from img natural size via JS ─────────────────
-    // We use the stream config dimensions as reference for lock coord mapping.
-    private int _frameWidth  => Vision.StreamConfig.StreamWidth  > 0 ? Vision.StreamConfig.StreamWidth  : 640;
-    private int _frameHeight => Vision.StreamConfig.StreamHeight > 0 ? Vision.StreamConfig.StreamHeight : 480;
+    // ── Frame dimensions tracked from camera ──────────────────────────────────
+    private int _frameWidth  => Vision.NativeWidth;
+    private int _frameHeight => Vision.NativeHeight;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     protected override void OnInitialized()
@@ -158,7 +157,7 @@
     private void SendLock()
     {
         if (_hasClick)
-            Vision.ProcessLockRequest(_clickRatioX, _clickRatioY, _frameWidth, _frameHeight);
+            Vision.ProcessLockRequest(_clickRatioX, _clickRatioY);
     }
 
     private void SetMode(OperationMode mode)

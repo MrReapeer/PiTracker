@@ -19,6 +19,8 @@ namespace Monitor.Services
         // ─── Shared State ─────────────────────────────────────────────────────
         public LockParameters? CurrentLock { get; private set; }
         public string LatestFrameBase64 { get; private set; } = string.Empty;
+        public int NativeWidth { get; private set; } = 640;
+        public int NativeHeight { get; private set; } = 480;
         public bool IsCameraAvailable { get; private set; } = true;
         public string CameraError { get; private set; } = string.Empty;
 
@@ -57,8 +59,10 @@ namespace Monitor.Services
                 FpsActual = 1.0 / (now - _lastFrameTime).TotalSeconds;
             _lastFrameTime = now;
 
-            // Update lock state
+            // Update state
             CurrentLock = lockResult;
+            NativeWidth = frame.Width;
+            NativeHeight = frame.Height;
 
             // Encode frame to JPEG Base64 at configured quality/resolution
             try
@@ -93,10 +97,10 @@ namespace Monitor.Services
         /// Called by the UI with click ratios (0.0–1.0). Converts to camera pixel
         /// coordinates and queues a lock request for the worker to pick up.
         /// </summary>
-        public void ProcessLockRequest(double ratioX, double ratioY, int frameWidth, int frameHeight)
+        public void ProcessLockRequest(double ratioX, double ratioY)
         {
-            var pixelX = ratioX * frameWidth;
-            var pixelY = ratioY * frameHeight;
+            var pixelX = ratioX * NativeWidth;
+            var pixelY = ratioY * NativeHeight;
 
             var pending = new LockParameters
             {
