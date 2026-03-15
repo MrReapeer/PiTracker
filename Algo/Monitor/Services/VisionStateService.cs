@@ -114,8 +114,8 @@ namespace Monitor.Services
             Cv2.Rectangle(rescaled, new Rect(x, y, w, h), Scalar.Blue, 2);
 
             // Velocity arrow
-            var cx = (int)(x + w / 2);
-            var cy = (int)(y + h / 2);
+            var cx = x + w / 2;
+            var cy = y + h / 2;
             Cv2.Line(rescaled, new Point(cx, cy), new Point(cx - (int)(lp.dX * sx), cy - (int)(lp.dY * sy)), Scalar.Yellow, 1);
 
             // Confidence text

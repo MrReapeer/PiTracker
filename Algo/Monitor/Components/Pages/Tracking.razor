@@ -7,134 +7,181 @@
 
 <PageTitle>Tracking – PiTracker Monitor</PageTitle>
 
-<div class="d-flex flex-column" style="height: 100%; width: 100%; background: #050806;">
-
+<div class="t-container">
     @* ── Top toolbar ──────────────────────────────────────────────────── *@
-    <MudPaper Class="pa-2 px-4 d-flex align-center flex-shrink-0" Elevation="4" Style="background: #0c120e; z-index: 10;">
-        <MudText Typo="Typo.h6" Color="Color.Primary" Class="mr-6" Style="font-family: monospace;"><b>TRACKING</b>_UPLINK</MudText>
+    <div class="t-toolbar">
+        <MudText Typo="Typo.h6" Color="Color.Primary" Class="mr-6" Style="font-family: monospace; font-weight: bold;">TRACKING_UPLINK</MudText>
 
-        @* Mode toggle *@
         <MudButtonGroup Variant="Variant.Outlined" Size="Size.Small" Class="mr-4">
             <MudButton Color="@(Vision.Mode == OperationMode.Demo ? Color.Primary : Color.Default)"
-                       OnClick="@(() => SetMode(OperationMode.Demo))">Demo</MudButton>
+                       OnClick="@(() => SetMode(OperationMode.Demo))" Style="font-family: monospace;">DEMO</MudButton>
             <MudButton Color="@(Vision.Mode == OperationMode.Live ? Color.Success : Color.Default)"
-                       OnClick="@(() => SetMode(OperationMode.Live))">Live</MudButton>
+                       OnClick="@(() => SetMode(OperationMode.Live))" Style="font-family: monospace;">LIVE</MudButton>
         </MudButtonGroup>
-
-        @* Lock controls *@
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Large"
-                   StartIcon="@Icons.Material.Filled.GpsFixed"
-                   Disabled="@(!_hasClick)"
-                   OnClick="SendLock" Class="mr-2 px-6" Style="font-weight: 900; letter-spacing: 2px;">LOCK</MudButton>
-
-        <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Medium"
-                   StartIcon="@Icons.Material.Filled.GpsOff"
-                   OnClick="@(() => Vision.ClearLock())">Clear</MudButton>
 
         <MudSpacer />
 
         <MudButton Variant="Variant.Text" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Fullscreen"
-                   OnClick="RequestFullscreen">Fullscreen</MudButton>
+                   OnClick="RequestFullscreen" Style="font-family: monospace;">FULLSCREEN</MudButton>
 
-        @* FPS badge *@
         <MudChip T="string" Size="Size.Small" Color="Color.Dark" Class="ml-4" Style="font-family: monospace;">@($"{Vision.FpsActual:F1} fps")</MudChip>
-    </MudPaper>
+    </div>
 
     @* ── Camera error banner ──────────────────────────────────────────── *@
     @if (!Vision.IsCameraAvailable)
     {
-        <MudAlert Severity="Severity.Error" Class="m-2 flex-shrink-0" Icon="@Icons.Material.Filled.VideocamOff">
+        <MudAlert Severity="Severity.Error" Class="m-0 border-radius-0" Style="flex-shrink: 0;" Icon="@Icons.Material.Filled.VideocamOff">
             @Vision.CameraError
         </MudAlert>
     }
 
-    @* ── Stream image (Centered) ──────────────────────────────────────── *@
-    <div style="flex-grow: 1; position: relative; display: flex; justify-content: center; align-items: center; overflow: hidden; background: #000;">
-        @if (!string.IsNullOrEmpty(Vision.LatestFrameBase64))
-        {
-            <div style="position: relative; display: inline-block;">
-                <img id="stream-img"
-                     src="@Vision.LatestFrameBase64"
-                     style="max-width: 100vw; max-height: calc(100vh - 150px); width: auto; height: auto; display: block; cursor: crosshair; user-select: none;"
-                     @onclick="OnImageClick" />
+    <div class="t-main">
+        @* ── Left Sidebar (Stats) ─────────────────────────────────────────── *@
+        <div class="t-left">
+            @* We render the boxes even if not locked, just empty/zeros, so layout doesn't shift *@
+            @{
+                var lp = Vision.CurrentLock;
+                var isLocked = lp != null && lp.IsLocked;
+            }
+            
+            <div class="stat-box">
+                <div class="stat-label">CONFIDENCE</div>
+                <MudProgressLinear Color="@(isLocked ? ConfColor(lp!.Confidence) : Color.Dark)" 
+                                   Value="@(isLocked ? lp!.Confidence * 100 : 0)" 
+                                   Rounded="false" Class="my-2" Style="height: 6px;" />
+                <div class="stat-val">@(isLocked ? lp!.Confidence.ToString("P0") : "0%")</div>
+            </div>
 
-                @* Click reticle overlay (Big crosshair) *@
-                @if (_hasClick)
-                {
-                    <div style="position: absolute;
-                                left: calc(@(_clickRatioX * 100)%);
-                                top: calc(@(_clickRatioY * 100)%);
-                                pointer-events: none;
-                                transform: translate(-50%, -50%);
-                                width: 80px; height: 80px;">
-                        @* Vertical line *@
-                        <div style="position: absolute; left: 39px; top: 0; width: 2px; height: 100%; background: rgba(0, 230, 118, 0.8); box-shadow: 0 0 4px #00e676;"></div>
-                        @* Horizontal line *@
-                        <div style="position: absolute; left: 0; top: 39px; width: 100%; height: 2px; background: rgba(0, 230, 118, 0.8); box-shadow: 0 0 4px #00e676;"></div>
-                    </div>
-                }
+            <div class="stat-box">
+                <div class="stat-label">WID // HGT</div>
+                <div class="stat-val">@(isLocked ? $"{lp!.W:F1} // {lp.H:F1}" : "0.0 // 0.0")</div>
             </div>
-        }
-        else
-        {
-            <div style="display: flex; flex-direction: column; align-items: center;">
-                <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" Class="mb-4" />
-                <MudText Color="Color.Primary" Style="font-family: monospace; letter-spacing: 2px;">WAITING_FOR_SIGNAL...</MudText>
+
+            <div class="stat-box">
+                <div class="stat-label">VEL_X // VEL_Y</div>
+                <div class="stat-val">@(isLocked ? $"{lp!.dX:F1} // {lp.dY:F1}" : "0.0 // 0.0")</div>
             </div>
-        }
+
+            <div class="stat-box">
+                <div class="stat-label">POS_X // POS_Y</div>
+                <div class="stat-val">@(isLocked ? $"{lp!.X:F1} // {lp.Y:F1}" : "0.0 // 0.0")</div>
+            </div>
+
+            @* Two empty thin slots for future plots *@
+            <div class="stat-box" style="flex-grow: 1; min-height: 60px;">
+                <div class="stat-label">SIZE_PLOT (AWAITING DATA)</div>
+            </div>
+            <div class="stat-box" style="flex-grow: 1; min-height: 60px;">
+                <div class="stat-label">VEL_PLOT (AWAITING DATA)</div>
+            </div>
+        </div>
+
+        @* ── Center (Stream) ──────────────────────────────────────────────── *@
+        <div class="t-center">
+            @if (!string.IsNullOrEmpty(Vision.LatestFrameBase64))
+            {
+                <div class="t-img-container">
+                    <img id="stream-img" src="@Vision.LatestFrameBase64" class="t-stream-img" @onclick="OnImageClick" />
+                    @* Click reticle overlay (Big crosshair) *@
+                    @if (_hasClick)
+                    {
+                        <div style="position: absolute; left: calc(@(_clickRatioX * 100)%); top: calc(@(_clickRatioY * 100)%); pointer-events: none; transform: translate(-50%, -50%); width: 80px; height: 80px;">
+                            <div style="position: absolute; left: 39px; top: 0; width: 2px; height: 100%; background: rgba(0, 230, 118, 0.8); box-shadow: 0 0 4px #00e676;"></div>
+                            <div style="position: absolute; left: 0; top: 39px; width: 100%; height: 2px; background: rgba(0, 230, 118, 0.8); box-shadow: 0 0 4px #00e676;"></div>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div style="display: flex; flex-direction: column; align-items: center;">
+                    <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" Class="mb-4" />
+                    <MudText Color="Color.Primary" Style="font-family: monospace; letter-spacing: 2px;">WAITING_FOR_SIGNAL...</MudText>
+                </div>
+            }
+        </div>
+
+        @* ── Right Sidebar (Controls) ─────────────────────────────────────── *@
+        <div class="t-right">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" 
+                       StartIcon="@Icons.Material.Filled.GpsFixed"
+                       Disabled="@(!_hasClick)"
+                       OnClick="SendLock" 
+                       Style="font-weight: 900; letter-spacing: 2px; width: 100%; height: 120px; font-size: 1.5rem;" Class="lock-btn">
+                LOCK
+            </MudButton>
+
+            <MudButton Variant="Variant.Outlined" Color="Color.Error" 
+                       StartIcon="@Icons.Material.Filled.GpsOff"
+                       OnClick="@(() => Vision.ClearLock())"
+                       Style="width: 100%; height: 50px; font-family: monospace;" Class="clear-btn">
+                CLEAR
+            </MudButton>
+        </div>
     </div>
 
-    @* ── Status bar ───────────────────────────────────────────────────── *@
-    @if (Vision.CurrentLock is { } lp && lp.IsLocked)
-    {
-        <MudPaper Class="pa-2 px-4 flex-shrink-0" Elevation="4" Style="background: #0c120e; border-top: 1px solid #1b5e20;">
-            <MudGrid Spacing="1">
-                <MudItem xs="6" sm="3">
-                    <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace;">POS_X // POS_Y</MudText>
-                    <MudText Typo="Typo.body2" Style="font-family: monospace; color: #00e676;">@lp.X.ToString("F1") // @lp.Y.ToString("F1")</MudText>
-                </MudItem>
-                <MudItem xs="6" sm="3">
-                    <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace;">WID // HGT</MudText>
-                    <MudText Typo="Typo.body2" Style="font-family: monospace; color: #00e676;">@lp.W.ToString("F1") // @lp.H.ToString("F1")</MudText>
-                </MudItem>
-                <MudItem xs="6" sm="3">
-                    <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace;">VEL_X // VEL_Y</MudText>
-                    <MudText Typo="Typo.body2" Style="font-family: monospace; color: #00e676;">@lp.dX.ToString("F1") // @lp.dY.ToString("F1")</MudText>
-                </MudItem>
-                <MudItem xs="6" sm="3">
-                    <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace;">CONFIDENCE</MudText>
-                    <MudProgressLinear Color="@ConfColor(lp.Confidence)" Value="@(lp.Confidence * 100)" Rounded="true" Class="my-1" />
-                    <MudText Typo="Typo.body2" Style="font-family: monospace;">@lp.Confidence.ToString("P0")</MudText>
-                </MudItem>
-                @if (!string.IsNullOrEmpty(lp.DebugInfo))
-                {
-                    <MudItem xs="12">
-                        <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace;">DBUG_SYS_LOG</MudText>
-                        <MudText Typo="Typo.caption" Style="font-family: monospace; color: #81c784;">> @lp.DebugInfo</MudText>
-                    </MudItem>
-                }
-            </MudGrid>
-        </MudPaper>
-    }
-    else
-    {
-        <MudPaper Class="pa-1 text-center flex-shrink-0" Elevation="0" Style="background: #050806;">
-            <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace; letter-spacing: 1px;">
-                > SYSTEM IDLE: SELECT TARGET IN VIEWPORT AND ENGAGE LOCK
-            </MudText>
-        </MudPaper>
-    }
+    @* ── Footer ───────────────────────────────────────────────────────── *@
+    <div class="t-footer">
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Style="font-family: monospace;">
+            DBUG_SYS_LOG > @(Vision.CurrentLock?.DebugInfo ?? "SYSTEM IDLE: SELECT TARGET IN VIEWPORT AND ENGAGE LOCK")
+        </MudText>
+    </div>
 </div>
+
+<style>
+.t-container { display: flex; flex-direction: column; width: 100%; height: 100%; background: #050806; }
+.t-toolbar { display: flex; align-items: center; padding: 12px 24px; background: #0c120e; z-index: 10; flex-shrink: 0; border-bottom: 1px solid #142e1b; }
+.t-footer { padding: 4px 16px; background: #050806; flex-shrink: 0; border-top: 1px solid #142e1b; }
+
+.t-main { display: flex; flex-direction: row; flex-grow: 1; overflow: hidden; min-height: 0; }
+
+.t-left { 
+    display: flex; flex-direction: column; width: 280px; flex-shrink: 0; padding: 16px; overflow-y: auto; 
+    background: #0a0f0c; border-right: 1px solid #142e1b; gap: 12px;
+}
+.t-center { 
+    flex-grow: 1; display: flex; justify-content: center; align-items: center; background: #020302; 
+    position: relative; overflow: hidden; min-width: 0; min-height: 0;
+}
+.t-right { 
+    display: flex; flex-direction: column; width: 200px; flex-shrink: 0; padding: 16px; justify-content: center; 
+    background: #0a0f0c; border-left: 1px solid #142e1b; gap: 24px;
+}
+
+.stat-box { background: #0c120e; border: 1px solid #1b5e20; padding: 12px; display: flex; flex-direction: column; }
+.stat-label { font-family: monospace; color: #4caf50; font-size: 0.65rem; letter-spacing: 1px; margin-bottom: 4px; }
+.stat-val { font-family: monospace; color: #00e676; font-size: 1.1rem; font-weight: bold; }
+
+.t-img-container { 
+    position: relative; display: flex; justify-content: center; align-items: center; 
+    width: 100%; height: 100%; 
+}
+.t-stream-img { 
+    max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: fill; 
+    display: block; cursor: crosshair; user-select: none;
+}
+
+@@media (max-aspect-ratio: 1/1) {
+    .t-main { flex-direction: column; }
+    .t-left { 
+        width: 100%; flex-direction: row; flex-wrap: wrap; height: auto; border-right: none; 
+        border-bottom: 1px solid #142e1b; padding: 8px; gap: 8px; max-height: 40vh;
+    }
+    .stat-box { flex: 1 1 calc(50% - 8px); padding: 8px; min-width: 120px; }
+    .t-right { 
+        width: 100%; flex-direction: row; height: auto; border-left: none; 
+        border-top: 1px solid #142e1b; padding: 16px; gap: 16px; justify-content: center;
+    }
+    .lock-btn { height: 80px !important; width: 60% !important; font-size: 1.5rem !important; }
+    .clear-btn { height: 80px !important; width: 30% !important; font-size: 1.2rem !important; }
+}
+</style>
 
 @code {
     // ── Click state ───────────────────────────────────────────────────────────
     private bool _hasClick = true; // Auto-enable click for the center initially
     private double _clickRatioX = 0.5; // Default center X
     private double _clickRatioY = 0.5; // Default center Y
-
-    // ── Frame dimensions tracked from camera ──────────────────────────────────
-    private int _frameWidth  => Vision.NativeWidth;
-    private int _frameHeight => Vision.NativeHeight;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     protected override void OnInitialized()
@@ -155,14 +202,12 @@
     // ── Fullscreen Request ────────────────────────────────────────────────────
     private async Task RequestFullscreen()
     {
-        // Calling our registered JS helper to pop the browser window to full screen.
         await JS.InvokeVoidAsync("trackingHelper.toggleFullscreen", null);
     }
 
     // ── Click-to-aim ──────────────────────────────────────────────────────────
     private async Task OnImageClick(MouseEventArgs e)
     {
-        // Use JS interop to get ratio within the img element (handles CSS scaling)
         var result = await JS.InvokeAsync<ClickRatio>("trackingHelper.getClickRatio",
             "stream-img", e.ClientX, e.ClientY);
         _clickRatioX = result.X;
