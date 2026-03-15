@@ -1,6 +1,9 @@
 using Monitor.Components;
 using Monitor.Services;
 using MudBlazor.Services;
+using System.Net;
+using System.Net.Sockets;
+using System.Linq;
 
 namespace Monitor
 {
@@ -9,6 +12,19 @@ namespace Monitor
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
+
+            // Configure listening URLs (listen on all interfaces for external access)
+            builder.WebHost.UseUrls("http://0.0.0.0:5062");
+
+            // Detect Local IP for display
+            string externalUrl = "http://[YOUR_IP]:5062";
+            try
+            {
+                var host = Dns.GetHostEntry(Dns.GetHostName());
+                var ip = host.AddressList.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+                if (ip != null) externalUrl = $"http://{ip}:5062";
+            }
+            catch { /* Ignore */ }
 
             // Add services to the container.
             builder.Services.AddRazorComponents()
@@ -36,6 +52,13 @@ namespace Monitor
             app.MapStaticAssets();
             app.MapRazorComponents<App>()
                 .AddInteractiveServerRenderMode();
+
+            Console.WriteLine("=================================================");
+            Console.WriteLine(" PiTracker Monitor Link Established ");
+            Console.WriteLine("=================================================");
+            Console.WriteLine($" Local:    http://localhost:5062");
+            Console.WriteLine($" Network:  {externalUrl}");
+            Console.WriteLine("=================================================");
 
             app.Run();
         }
