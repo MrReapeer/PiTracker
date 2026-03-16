@@ -191,8 +191,10 @@ namespace PITrackerCore
             }
             else
             {
-                // On modern Pi OS, the Pi Camera (ov5647) requires libcamera via GStreamer
-                string pipeline = _pipeline ?? "libcamerasrc ! video/x-raw, width=640, height=480, framerate=30/1 ! videoconvert ! appsink";
+                // On modern Pi OS, the Pi Camera (ov5647) requires libcamera via GStreamer.
+                // Requesting nearest HD resolution (1280x720).
+                // appsink is configured to drop old frames and keep only 1 buffer to minimize latency.
+                string pipeline = _pipeline ?? "libcamerasrc ! video/x-raw, width=1280, height=720, framerate=30/1 ! videoconvert ! appsink sync=false max-buffers=1 drop=true";
                 OpenPipeline(pipeline, VideoCaptureAPIs.GSTREAMER);
             }
         }
