@@ -170,9 +170,16 @@ namespace PITrackerCore
     public class LiveCameraSource : CameraSource
     {
         private readonly ILogger? _logger;
+        private readonly string? _pipeline;
 
-        public LiveCameraSource(int deviceId = -1, ILogger? logger = null) : base(deviceId)
+        public LiveCameraSource(int deviceId = 0, ILogger? logger = null) : base(deviceId)
         {
+            _logger = logger;
+        }
+
+        public LiveCameraSource(string pipeline, ILogger? logger = null) : base(-1)
+        {
+            _pipeline = pipeline;
             _logger = logger;
         }
 
@@ -184,8 +191,31 @@ namespace PITrackerCore
             }
             else
             {
-                OpenDevice(deviceId >= 0 ? deviceId : 0, VideoCaptureAPIs.V4L2);
+                // On modern Pi OS, the Pi Camera (ov5647) requires libcamera via GStreamer
+                string pipeline = _pipeline ?? "libcamerasrc ! video/x-raw, width=640, height=480, framerate=30/1 ! videoconvert ! appsink";
+                OpenPipeline(pipeline, VideoCaptureAPIs.GSTREAMER);
             }
+        }
+
+        private void OpenPipeline(string pipeline, VideoCaptureAPIs backend)
+        {
+            _logger?.LogInformation("[CameraDiag] Opening pipeline: {Pipe} with {Backend}", pipeline, backend);
+            capture = new VideoCapture(pipeline, backend);
+
+            if (!capture.IsOpened())
+            {
+                _logger?.LogWarning("[CameraDiag] Failed to open pipeline.");
+                IsRunning = false;
+                return;
+            }
+
+            _logger?.LogInformation(
+                "[CameraDiag] Opened Pipeline. Resolution={W}x{H}  FPS={FPS}",
+                (int)capture.Get(VideoCaptureProperties.FrameWidth),
+                (int)capture.Get(VideoCaptureProperties.FrameHeight),
+                capture.Get(VideoCaptureProperties.Fps));
+
+            IsRunning = true;
         }
 
         private void OpenDevice(int idx, VideoCaptureAPIs backend)
