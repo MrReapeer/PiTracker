@@ -192,9 +192,11 @@ namespace PITrackerCore
             else
             {
                 // On modern Pi OS, the Pi Camera (ov5647) requires libcamera via GStreamer.
-                // Requesting nearest HD resolution (1280x720).
-                // appsink is configured to drop old frames and keep only 1 buffer to minimize latency.
-                string pipeline = _pipeline ?? "libcamerasrc ! video/x-raw, width=1280, height=720, framerate=30/1 ! videoconvert ! appsink sync=false max-buffers=1 drop=true";
+                // Hardware ISP downscales to 640x480. We force BGR format out of videoconvert
+                // so OpenCV (which is native BGR) doesn't burn CPU doing colorspace conversions.
+                // appsink buffers=1 and drop=true guarantees zero latency frame grabbing.
+                string pipeline = _pipeline ?? 
+                    "libcamerasrc ! video/x-raw,width=640,height=480,framerate=90/1 ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false";
                 OpenPipeline(pipeline, VideoCaptureAPIs.GSTREAMER);
             }
         }
