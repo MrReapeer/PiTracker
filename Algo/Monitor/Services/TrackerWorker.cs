@@ -63,6 +63,7 @@ namespace Monitor.Services
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("TrackerWorker started.");
+            LiveCameraSource.LogAttachedCameras(_logger);
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -165,7 +166,7 @@ namespace Monitor.Services
             }
             else // Live
             {
-                var live = new LiveCameraSource(0);
+                var live = new LiveCameraSource(0, _logger);
                 live.Start();
 
                 if (!live.IsRunning)

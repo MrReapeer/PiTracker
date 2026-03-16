@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 
 namespace PITrackerCore
 {
@@ -167,23 +168,120 @@ namespace PITrackerCore
 
     public class LiveCameraSource : CameraSource
     {
-        public LiveCameraSource(int deviceId = 0) : base(deviceId) { }
+        private readonly ILogger? _logger;
+
+        public LiveCameraSource(int deviceId = 0, ILogger? logger = null) : base(deviceId)
+        {
+            _logger = logger;
+        }
+
+        public static void LogAttachedCameras(ILogger logger)
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                logger.LogInformation("[CameraDiag] Running on Windows - skipping /dev/video scan.");
+                return;
+            }
+
+            var videoDevices = Directory.GetFiles("/dev", "video*")
+                                        .OrderBy(f => f)
+                                        .ToArray();
+
+            if (videoDevices.Length == 0)
+            {
+                logger.LogWarning("[CameraDiag] No /dev/video* devices found! Is a camera connected?");
+                return;
+            }
+
+            logger.LogInformation("[CameraDiag] Found {Count} video device(s): {Devices}",
+                videoDevices.Length, string.Join(", ", videoDevices));
+
+            // Try to briefly open each one to see which are usable
+            foreach (var dev in videoDevices)
+            {
+                int idx = int.TryParse(dev.Replace("/dev/video", ""), out var n) ? n : -1;
+                if (idx < 0) continue;
+                try
+                {
+                    using var test = new VideoCapture(idx, VideoCaptureAPIs.V4L2);
+                    logger.LogInformation("[CameraDiag] /dev/video{Idx}: opened={Open}", idx, test.IsOpened());
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning("[CameraDiag] /dev/video{Idx}: error - {Msg}", idx, ex.Message);
+                }
+            }
+        }
 
         public override void Start()
         {
-            VideoCaptureAPIs backend = VideoCaptureAPIs.ANY; // Fallback
+            VideoCaptureAPIs backend = VideoCaptureAPIs.ANY;
 
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                backend = VideoCaptureAPIs.DSHOW; // Windows optimal
+                backend = VideoCaptureAPIs.DSHOW;
             }
             else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
             {
-                backend = VideoCaptureAPIs.V4L2; // Linux/Pi optimal
+                backend = VideoCaptureAPIs.V4L2;
             }
 
+            _logger?.LogInformation("[CameraDiag] Opening device {Id} with backend {Backend}", deviceId, backend);
             capture = new VideoCapture(deviceId, backend);
-            IsRunning = capture.IsOpened();
+
+            if (!capture.IsOpened())
+            {
+                _logger?.LogWarning("[CameraDiag] VideoCapture failed to open device {Id}.", deviceId);
+                IsRunning = false;
+                return;
+            }
+
+            // Log what the driver negotiated
+            _logger?.LogInformation(
+                "[CameraDiag] Opened OK. Resolution={W}x{H}  FPS={FPS}  Format={Fmt}",
+                (int)capture.Get(VideoCaptureProperties.FrameWidth),
+                (int)capture.Get(VideoCaptureProperties.FrameHeight),
+                capture.Get(VideoCaptureProperties.Fps),
+                (int)capture.Get(VideoCaptureProperties.Format));
+
+            // V4L2 needs a short warm-up: flush the first few (often black) frames
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                _logger?.LogInformation("[CameraDiag] Flushing V4L2 warm-up frames...");
+                var warmup = new Mat();
+                for (int i = 0; i < 10; i++)
+                {
+                    capture.Read(warmup);
+                    System.Threading.Thread.Sleep(30);
+                }
+                warmup.Dispose();
+                _logger?.LogInformation("[CameraDiag] Warm-up done.");
+            }
+
+            IsRunning = true;
+        }
+
+        private int _emptyFrameCount = 0;
+
+        public override async Task<Mat> GetNextFrame()
+        {
+            if (!IsRunning || capture == null || !capture.IsOpened()) return null;
+
+            Mat frame = new Mat();
+            if (capture.Read(frame) && !frame.Empty())
+            {
+                _emptyFrameCount = 0;
+                return frame;
+            }
+
+            frame.Dispose();
+            _emptyFrameCount++;
+
+            if (_emptyFrameCount == 1 || _emptyFrameCount % 100 == 0)
+                _logger?.LogWarning("[CameraDiag] Empty/failed frame #{Count} from device {Id}. IsOpened={Open}",
+                    _emptyFrameCount, deviceId, capture.IsOpened());
+
+            return null;
         }
     }
 }
