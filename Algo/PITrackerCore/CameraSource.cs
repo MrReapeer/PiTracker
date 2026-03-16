@@ -176,65 +176,6 @@ namespace PITrackerCore
             _logger = logger;
         }
 
-        /// <summary>
-        /// Scans all /dev/video* devices and logs whether each can open AND deliver a real frame.
-        /// Call once at startup to identify the correct device index.
-        /// </summary>
-        public static void LogAttachedCameras(ILogger logger)
-        {
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            {
-                logger.LogInformation("[CameraDiag] Running on Windows - skipping /dev/video scan.");
-                return;
-            }
-
-            var videoDevices = Directory.GetFiles("/dev", "video*")
-                                        .OrderBy(f => f)
-                                        .ToArray();
-
-            if (videoDevices.Length == 0)
-            {
-                logger.LogWarning("[CameraDiag] No /dev/video* devices found! Is a camera connected?");
-                return;
-            }
-
-            logger.LogInformation("[CameraDiag] Scanning {Count} video device(s) for real capture ability...",
-                videoDevices.Length);
-
-            using var testFrame = new Mat();
-            foreach (var dev in videoDevices)
-            {
-                int idx = int.TryParse(dev.Replace("/dev/video", ""), out var n) ? n : -1;
-                if (idx < 0) continue;
-                try
-                {
-                    using var test = new VideoCapture(idx, VideoCaptureAPIs.V4L2);
-                    if (!test.IsOpened())
-                    {
-                        logger.LogInformation("[CameraDiag] /dev/video{Idx}: cannot open", idx);
-                        continue;
-                    }
-                    // Try to read a real frame (allow a few attempts)
-                    bool gotFrame = false;
-                    for (int i = 0; i < 5; i++)
-                    {
-                        test.Read(testFrame);
-                        if (!testFrame.Empty()) { gotFrame = true; break; }
-                        System.Threading.Thread.Sleep(50);
-                    }
-                    int w = (int)test.Get(VideoCaptureProperties.FrameWidth);
-                    int h = (int)test.Get(VideoCaptureProperties.FrameHeight);
-                    logger.LogInformation(
-                        "[CameraDiag] /dev/video{Idx}: opened=True  {W}x{H}  hasFrame={HasFrame}  ← {Hint}",
-                        idx, w, h, gotFrame, gotFrame ? "*** REAL CAMERA ***" : "metadata/ISP only");
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning("[CameraDiag] /dev/video{Idx}: error - {Msg}", idx, ex.Message);
-                }
-            }
-        }
-
         public override void Start()
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -243,12 +184,7 @@ namespace PITrackerCore
             }
             else
             {
-                // On Linux: if a specific device was requested use it,
-                // otherwise auto-detect the first device that gives real frames.
-                if (deviceId >= 0)
-                    OpenDevice(deviceId, VideoCaptureAPIs.V4L2);
-                else
-                    AutoDetectLinux();
+                OpenDevice(deviceId >= 0 ? deviceId : 0, VideoCaptureAPIs.V4L2);
             }
         }
 
@@ -287,52 +223,7 @@ namespace PITrackerCore
             IsRunning = true;
         }
 
-        private void AutoDetectLinux()
-        {
-            _logger?.LogInformation("[CameraDiag] Auto-detecting camera device...");
-            var candidates = Directory.GetFiles("/dev", "video*")
-                                      .Select(f => int.TryParse(f.Replace("/dev/video", ""), out var n) ? n : -1)
-                                      .Where(n => n >= 0)
-                                      .OrderBy(n => n)
-                                      .ToArray();
 
-            using var probe = new Mat();
-            foreach (var idx in candidates)
-            {
-                try
-                {
-                    var cap = new VideoCapture(idx, VideoCaptureAPIs.V4L2);
-                    if (!cap.IsOpened()) { cap.Dispose(); continue; }
-
-                    bool gotFrame = false;
-                    for (int i = 0; i < 5; i++)
-                    {
-                        cap.Read(probe);
-                        if (!probe.Empty()) { gotFrame = true; break; }
-                        System.Threading.Thread.Sleep(50);
-                    }
-
-                    if (gotFrame)
-                    {
-                        _logger?.LogInformation("[CameraDiag] Auto-selected /dev/video{Id} ({W}x{H})",
-                            idx,
-                            (int)cap.Get(VideoCaptureProperties.FrameWidth),
-                            (int)cap.Get(VideoCaptureProperties.FrameHeight));
-                        capture = cap;
-                        deviceId = idx;
-                        // Flush a few more warm-up frames
-                        for (int i = 0; i < 5; i++) { cap.Read(probe); System.Threading.Thread.Sleep(30); }
-                        IsRunning = true;
-                        return;
-                    }
-                    cap.Dispose();
-                }
-                catch { /* skip broken devices */ }
-            }
-
-            _logger?.LogWarning("[CameraDiag] Auto-detect failed: no /dev/video* device returned a frame.");
-            IsRunning = false;
-        }
 
         private int _emptyFrameCount = 0;
 
