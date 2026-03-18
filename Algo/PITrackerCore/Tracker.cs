@@ -1,5 +1,6 @@
 using OpenCvSharp;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -144,15 +145,6 @@ namespace PITrackerCore
         {
             isRunning = true;
         }
-        public static LockParameters GetLastLocked(LockParameters current)
-        {
-            if (current == null)
-                return null;
-            if (current.IsLocked)
-                return current;
-            else
-                return GetLastLocked(current.Seed);
-        }
         LockParameters lastProcessed = null;
         public LockParameters TryLock(TrackerSettings cfg, Mat frame)
         {
@@ -173,8 +165,13 @@ namespace PITrackerCore
                 lastProcessed = null;
                 return null;
                 }
-            // find the last locked state in the history chain
-            var last = GetLastLocked(lastProcessed);
+                // find the last locked state in the history chain
+            
+            var train = new LockTrain(LockParameters.GetLastLocked(LockParameters.GetLastLocked(lastProcessed)), 5);
+            var last = train.GetSmoothened();
+            if (lastProcessed.IsManual)
+            last = lastProcessed;
+
             if (last == null) // nevel locked
             {
                 lastProcessed = null;
@@ -264,7 +261,9 @@ namespace PITrackerCore
             double roiConfX = Math.Min(Math.Max(1.0 - ((double)(newOffsetX - cfg.MaxROI) / cfg.MaxROI), 0), 1);
             double roiConfY = Math.Min(Math.Max(1.0 - ((double)(newOffsetY - cfg.MaxROI) / cfg.MaxROI), 0), 1);
             double roiConf = Math.Min(roiConfX, roiConfY);
-            double currentFrameConf = (velConf + sizeConf + roiConf) / 3.0;
+            double lostConf = LockParameters.GetLockedUnloackedRatio(lastProcessed, 30);
+            double currentFrameConf = (velConf + sizeConf + roiConf + lostConf) / 4.0;
+            
             double finalConf = last.IsManual ? currentFrameConf : (last.Confidence * cfg.ConfidenceWeight) + (currentFrameConf * (1 - cfg.ConfidenceWeight));
             
             // --- STEP 5: INTEGRATE PREDICTION ---
@@ -295,7 +294,7 @@ namespace PITrackerCore
                 LastRoi = roiRect,
                 DebugInfo = sb.ToString()
             };
-            return last;
+            return lastProcessed;
         }
         public (double Width, double Height) GetObjectDimensionsManual(Mat binary)
         {
@@ -560,8 +559,98 @@ namespace PITrackerCore
             System.AppContext.BaseDirectory, "demo_frames");
     }
 
+    public class LockTrain
+    {
+        List<LockParameters> history = new List<LockParameters>();
+        public LockTrain(LockParameters initial, int maxDepth)
+        {
+            // use GetLastLocked to get all the history chain from the initial seed
+            var current = initial;
+            while (current != null)
+            {
+                if (current.IsLocked)
+                    history.Add(current);
+                if (history.Count >= maxDepth) break;
+                current = current.Seed;
+            }
+        }
+        float decayingAverage(List<float> values)
+        {
+            // Example of a decaying average giving more weight to recent entries
+            float totalWeight = 0;
+            float weightedSum = 0;
+            float decayFactor = 0.5f; // Recent entries get more weight
+            float weight = 1;
+            for (int i = values.Count - 1; i >= 0; i--, weight += (int)(weight * decayFactor))
+            {
+                totalWeight += weight;
+                weightedSum += weight * (float)values[i]; // Example using Confidence as the value
+            }
+
+            return totalWeight > 0 ? weightedSum / totalWeight : 0;
+        }
+        public LockParameters GetSmoothened()
+        {
+            if (history.Count == 0) return null;
+
+            // Simple average of all locked states in the history
+            double avgX = decayingAverage(history.Select(p => (float)p.X).ToList());
+            double avgY = decayingAverage(history.Select(p => (float)p.Y).ToList());
+            double avgW = decayingAverage(history.Select(p => (float)p.W).ToList());
+            double avgH = decayingAverage(history.Select(p => (float)p.H).ToList());
+            double avfRoiXOffset = decayingAverage(history.Select(p => (float)p.RoiOffsetX).ToList());
+            double avfRoiYOffset = decayingAverage(history.Select(p => (float)p.RoiOffsetY).ToList());
+            double avgDx = decayingAverage(history.Select(p => (float)p.dX).ToList());
+            double avgDy = decayingAverage(history.Select(p => (float)p.dY).ToList());
+            double avgDw = decayingAverage(history.Select(p => (float)p.dW).ToList());
+            double avgDh = decayingAverage(history.Select(p => (float)p.dH).ToList());
+            double binaryThreshold = decayingAverage(history.Select(p => (float)p.BinaryThreshold).ToList());
+
+
+            return new LockParameters
+            {            
+                X = avgX,
+                Y = avgY,
+                W = avgW,
+                H = avgH,
+                RoiOffsetX = (int)avfRoiXOffset,
+                RoiOffsetY = (int)avfRoiYOffset,
+                dX = avgDx,
+                dY = avgDy,
+                dW = avgDw,
+                dH = avgDh,
+                BinaryThreshold = (int)binaryThreshold,
+                IsManual = false,
+                IsLocked = true
+            };
+        }
+    }
     public class LockParameters
     {
+        public static float GetLockedUnloackedRatio(LockParameters current, int depth = 10)
+        {
+            // ratio of locked and unlocked
+            int lockedCount = 0;
+            int totalCount = 0;
+            var currentNode = current;
+            while (currentNode != null && totalCount < depth)            
+            {
+                if (currentNode.IsLocked) lockedCount++;
+                totalCount++;
+                currentNode = currentNode.Seed;
+            }
+            return totalCount > 0 ? (float)lockedCount / totalCount : 0;
+        }
+        public static LockParameters GetLastLocked(LockParameters current)
+        {
+            if (current == null)
+                return null;
+            if (current.IsLocked)
+                return current;
+            else
+                return GetLastLocked(current.Seed);
+        }
+        
         // LockParameters
         public LockParameters Seed{ get; set; }
         // Object Properties (Absolute Coordinates)
