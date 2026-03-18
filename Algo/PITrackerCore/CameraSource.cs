@@ -277,5 +277,180 @@ namespace PITrackerCore
 
             return null;
         }
+        public static void FindCamera()
+        {
+            Console.WriteLine();
+            Console.WriteLine("=================================================");
+            Console.WriteLine("  PiTracker Camera Finder");
+            Console.WriteLine("=================================================");
+            Console.WriteLine("Scanning /dev/video* devices — this may take a");
+            Console.WriteLine("few seconds per device due to V4L2 timeouts.");
+            Console.WriteLine("=================================================");
+            Console.WriteLine();
+
+            if (!System.Runtime.InteropServices.RuntimeInformation
+                    .IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux))
+            {
+                Console.WriteLine("Not running on Linux — nothing to scan.");
+                return;
+            }
+
+            var videoDevices = System.IO.Directory.GetFiles("/dev", "video*")
+                                                  .OrderBy(f => f)
+                                                  .ToArray();
+
+            if (videoDevices.Length == 0)
+            {
+                Console.WriteLine("ERROR: No /dev/video* devices found. Is a camera connected?");
+                return;
+            }
+
+            Console.WriteLine($"Found {videoDevices.Length} device(s). Testing each...");
+            Console.WriteLine();
+
+            using var testFrame = new OpenCvSharp.Mat();
+            int recommendedId = -1;
+
+            foreach (var dev in videoDevices)
+            {
+                if (!int.TryParse(dev.Replace("/dev/video", ""), out int idx)) continue;
+
+                Console.Write($"  /dev/video{idx,-3}  ");
+                try
+                {
+                    using var cap = new OpenCvSharp.VideoCapture(idx, OpenCvSharp.VideoCaptureAPIs.V4L2);
+                    if (!cap.IsOpened())
+                    {
+                        Console.WriteLine("cannot open              [skip]");
+                        continue;
+                    }
+
+                    int w = (int)cap.Get(OpenCvSharp.VideoCaptureProperties.FrameWidth);
+                    int h = (int)cap.Get(OpenCvSharp.VideoCaptureProperties.FrameHeight);
+
+                    bool gotFrame = false;
+                    for (int i = 0; i < 3; i++)
+                    {
+                        cap.Read(testFrame);
+                        if (!testFrame.Empty()) { gotFrame = true; break; }
+                        System.Threading.Thread.Sleep(100);
+                    }
+
+                    if (gotFrame)
+                    {
+                        Console.WriteLine($"opened  {w}x{h,-6}  hasFrame=YES  *** USE THIS: deviceId={idx} ***");
+                        if (recommendedId < 0) recommendedId = idx;
+                    }
+                    else
+                    {
+                        Console.WriteLine($"opened  {w}x{h,-6}  hasFrame=NO   (metadata/ISP pipe, skip)");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"ERROR: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine();
+            if (recommendedId >= 0)
+            {
+                Console.WriteLine($"=================================================");
+                Console.WriteLine($"  Recommended device ID: {recommendedId}");
+                Console.WriteLine($"  In TrackerWorker.cs, change:");
+                Console.WriteLine($"    var live = new LiveCameraSource(0, _logger);");
+                Console.WriteLine($"  to:");
+                Console.WriteLine($"    var live = new LiveCameraSource({recommendedId}, _logger);");
+                Console.WriteLine($"=================================================");
+            }
+            else
+            {
+                Console.WriteLine("No device returned a frame. Check camera connection.");
+            }
+            Console.WriteLine();
+        }
+        public static void TestProfiles()
+        {
+            Console.WriteLine();
+            Console.WriteLine("=================================================");
+            Console.WriteLine("  PiTracker Profile Tester");
+            Console.WriteLine("=================================================");
+            Console.WriteLine("Testing camera-supported profiles using libcamera-vid.");
+            Console.WriteLine("This tests the same modes as rpicam-vid.");
+            Console.WriteLine("Make sure no other camera applications are running.");
+            Console.WriteLine("=================================================");
+            Console.WriteLine();
+
+            if (!System.Runtime.InteropServices.RuntimeInformation
+                    .IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux))
+            {
+                Console.WriteLine("Not running on Linux — nothing to test.");
+                return;
+            }
+
+            // Common resolution and framerate combinations to test (based on camera modes)
+            var profiles = new (int w, int h, int fps)[]
+            {
+                (640, 480, 59),   // Mode: 58.924
+                (1296, 972, 46),  // Mode: 46.3371
+                (1920, 1080, 33), // Mode: 32.8052
+                (2592, 1944, 16)  // Mode: 15.6335
+            };
+
+            Console.WriteLine($"Testing {profiles.Length} profile(s)...");
+            Console.WriteLine();
+
+            var workingProfiles = new List<(int w, int h, int fps)>();
+
+            foreach (var (w, h, fps) in profiles)
+            {
+                Console.Write($"  {w}x{h}@{fps}  ");
+
+                try
+                {
+                    // Test with libcamera-vid
+                    var process = System.Diagnostics.Process.Start("libcamera-vid", $"--width {w} --height {h} --framerate {fps} --timeout 2000 --output /dev/null");
+                    process.WaitForExit();
+                    if (process.ExitCode == 0)
+                    {
+                        Console.WriteLine("*** WORKS ***");
+                        workingProfiles.Add((w, h, fps));
+                    }
+                    else
+                    {
+                        Console.WriteLine($"failed (exit code {process.ExitCode})  [skip]");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"ERROR: {ex.Message}");
+                }
+
+                // Short delay between tests
+                System.Threading.Thread.Sleep(1000);
+            }
+
+            Console.WriteLine();
+            if (workingProfiles.Any())
+            {
+                Console.WriteLine($"=================================================");
+                Console.WriteLine($"  Working profiles:");
+                foreach (var (w, h, fps) in workingProfiles)
+                {
+                    Console.WriteLine($"    {w}x{h} @ {fps}fps");
+                }
+                Console.WriteLine($"=================================================");
+                var best = workingProfiles.OrderByDescending(p => p.fps).First();
+                Console.WriteLine($"  Recommended: {best.w}x{best.h} @ {best.fps}fps");
+                Console.WriteLine($"  To use, modify LiveCameraSource pipeline in TrackerWorker.cs:");
+                Console.WriteLine($"    string pipeline = \"libcamerasrc ! video/x-raw, width={best.w}, height={best.h}, framerate={best.fps}/1 ! videoconvert ! appsink\";");
+                Console.WriteLine($"=================================================");
+            }
+            else
+            {
+                Console.WriteLine("No profiles worked. Check camera connection and libcamera setup.");
+            }
+            Console.WriteLine();
+        }
     }
 }

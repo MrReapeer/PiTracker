@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using OpenCvSharp;
 using PITrackerCore;
 using PiTrackerAlgo = PITrackerCore.Tracker;
+using System.Diagnostics;
 
 namespace Monitor.Services
 {
@@ -19,6 +20,11 @@ namespace Monitor.Services
         private PiTrackerAlgo? _tracker;
         private OperationMode _currentMode;
         private bool _isPlaying = true;
+
+        // ─── Video Capture Buffering ──────────────────────────────
+        public bool IsCapturing { get; set; } = false;
+        private List<Mat> _capturedFrames = new List<Mat>();
+        private string _capturePath = "/home/ai-interceptor/captured_frames";
 
         // ─── VCR Controls (exposed to Testing page) ──────────────────────────
         public bool IsPlaying
@@ -52,7 +58,45 @@ namespace Monitor.Services
             }
         }
 
+        // ─── Video Capture ────────────────────────────────────────────────────
+        public void StartCapture()
+        {
+            IsCapturing = true;
+            _capturedFrames.Clear();
+            _logger.LogInformation("Started video capture buffering.");
+        }
+
+        public void StopCapture()
+        {
+            IsCapturing = false;
+            SaveCapturedFrames();
+            _logger.LogInformation("Stopped video capture and saved frames.");
+        }
+
+        private void SaveCapturedFrames()
+        {
+            if (_capturedFrames.Count == 0) return;
+
+            try
+            {
+                Directory.CreateDirectory(_capturePath);
+                for (int i = 0; i < _capturedFrames.Count; i++)
+                {
+                    string fileName = Path.Combine(_capturePath, $"frame_{i:0000}.bmp");
+                    Cv2.ImWrite(fileName, _capturedFrames[i]);
+                    _capturedFrames[i].Dispose();
+                }
+                _capturedFrames.Clear();
+                _logger.LogInformation($"Saved {_capturedFrames.Count} frames to {_capturePath}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save captured frames.");
+            }
+        }
+
         private volatile bool _seekRequested = false;
+        private DateTime _lastCaptureTime = DateTime.MinValue;
 
         public TrackerWorker(VisionStateService state, ILogger<TrackerWorker> logger)
         {
@@ -86,34 +130,67 @@ namespace Monitor.Services
                     //}
                     _seekRequested = false;
 
+                    // ── Calculate capture FPS ──────────────────────────────────
+                    var now = DateTime.UtcNow;
+                    if (_lastCaptureTime != DateTime.MinValue)
+                    {
+                        var delta = now - _lastCaptureTime;
+                        _state.SetCaptureFps(1.0 / delta.TotalSeconds);
+                    }
+                    _lastCaptureTime = now;
+
                     // ── Grab frame ────────────────────────────────────────────
+                    Stopwatch sw = Stopwatch.StartNew();
                     var frame = await _camera.GetNextFrame();
+                    long captureTime = sw.ElapsedTicks;
                     if (frame == null || frame.Empty())
                     {
                         await Task.Delay(10, stoppingToken);
                         continue;
                     }
 
+                    string debugInfo = $"Capture:{captureTime * 1000000 / Stopwatch.Frequency}us ";
+
+                    // Buffer frame if capturing
+                    if (IsCapturing)
+                    {
+                        sw.Restart();
+                        _capturedFrames.Add(frame.Clone());
+                        long bufferTime = sw.ElapsedTicks;
+                        debugInfo += $"Buffer:{bufferTime * 1000000 / Stopwatch.Frequency}us ";
+                    }
+
                     using (frame)
                     {
                         // ── Apply pending lock request from UI ────────────────
+                        sw.Restart();
                         var pending = _state.ConsumePendingLock();
+                        long pendingTime = sw.ElapsedTicks;
+                        debugInfo += $"Pending:{pendingTime * 1000000 / Stopwatch.Frequency}us ";
                         if (pending != null)
+                        {
+                            sw.Restart();
                             _tracker!.SetTarget(pending);
+                            long setTime = sw.ElapsedTicks;
+                            debugInfo += $"Set:{setTime * 1000000 / Stopwatch.Frequency}us ";
+                        }
 
                         // ── Run tracker ──────────────────────────────────────
                         LockParameters? result = null;
                         if (_tracker!.currentTarget != null)
                         {
-                            result = _tracker.TryLock(_tracker.currentTarget, _state.Settings, frame);
-                            if (result.IsLocked)
-                                _tracker.SetTarget(result);
-                            else
-                                _tracker.ClearTarget();
+                            sw.Restart();
+                            //result = _tracker.TryLock(_tracker.currentTarget, _state.Settings, frame);
+                            long trackTime = sw.ElapsedTicks;
+                            debugInfo += $"Track:{trackTime * 1000000 / Stopwatch.Frequency}us " + (result?.DebugInfo ?? "");
                         }
 
                         // ── Push to UI (non-blocking) ─────────────────────────
+                        sw.Restart();
                         _state.PushFrame(frame.Clone(), result);
+                        long pushTime = sw.ElapsedTicks;
+                        string fullDebugInfo = debugInfo + $" Push:{pushTime * 1000000 / Stopwatch.Frequency}us";
+                        _state.SetLatestDebugInfo(fullDebugInfo);
                     }
                 }
                 catch (OperationCanceledException)

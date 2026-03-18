@@ -46,6 +46,17 @@
 
         <MudSpacer />
 
+        @if (Worker.IsCapturing)
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.Stop" Size="Size.Large"
+                           Color="Color.Error" aria-label="Stop Capture" OnClick="StopCapture" />
+        }
+        else
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.Videocam" Size="Size.Large"
+                           Color="Color.Info" aria-label="Start Capture" OnClick="StartCapture" />
+        }
+
         <MudChip T="string" Color="Color.Dark" Size="Size.Small">
             Frame @Worker.CurrentFrameIndex / @(Worker.TotalFrameCount - 1)
         </MudChip>
@@ -83,6 +94,10 @@
         <MudItem xs="6" sm="3">
             <MudText Typo="Typo.caption" Color="Color.Secondary">Stream FPS</MudText>
             <MudText Typo="Typo.body1">@Vision.FpsActual.ToString("F1")</MudText>
+        </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Debug Info</MudText>
+            <MudText Typo="Typo.body2" Style="font-family: monospace;">@Vision.LatestDebugInfo</MudText>
         </MudItem>
     </MudGrid>
 
@@ -139,4 +154,7 @@
         Worker.Seek(value);
         StateHasChanged();
     }
+
+    private void StartCapture() { Worker.StartCapture(); StateHasChanged(); }
+    private void StopCapture() { Worker.StopCapture(); StateHasChanged(); }
 }

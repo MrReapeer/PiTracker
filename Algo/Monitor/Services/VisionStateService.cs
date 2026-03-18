@@ -23,6 +23,7 @@ namespace Monitor.Services
         public int NativeHeight { get; private set; } = 480;
         public bool IsCameraAvailable { get; private set; } = true;
         public string CameraError { get; private set; } = string.Empty;
+        public string LatestDebugInfo { get; private set; } = string.Empty;
 
         // ─── Events ───────────────────────────────────────────────────────────
         /// <summary>Fired on the worker thread after every frame. Subscribers must dispatch to UI thread.</summary>
@@ -34,6 +35,8 @@ namespace Monitor.Services
 
         // ─── Frame Stats ──────────────────────────────────────────────────────
         public double FpsActual { get; private set; }
+        public double CaptureFps { get; private set; }
+        private const double SmoothingAlpha = 0.1;
         private DateTime _lastFrameTime = DateTime.MinValue;
 
         // ─── Camera error reporting ───────────────────────────────────────────
@@ -50,13 +53,26 @@ namespace Monitor.Services
             CameraError = string.Empty;
         }
 
+        public void SetLatestDebugInfo(string info)
+        {
+            LatestDebugInfo = info;
+        }
+
+        public void SetCaptureFps(double fps)
+        {
+            CaptureFps = CaptureFps == 0 ? fps : SmoothingAlpha * fps + (1 - SmoothingAlpha) * CaptureFps;
+        }
+
         // ─── Called by TrackerWorker on every processed frame ─────────────────
         public void PushFrame(Mat frame, LockParameters? lockResult)
         {
             // Measure actual FPS
             var now = DateTime.UtcNow;
             if (_lastFrameTime != DateTime.MinValue)
-                FpsActual = 1.0 / (now - _lastFrameTime).TotalSeconds;
+            {
+                double newFps = 1.0 / (now - _lastFrameTime).TotalSeconds;
+                FpsActual = FpsActual == 0 ? newFps : SmoothingAlpha * newFps + (1 - SmoothingAlpha) * FpsActual;
+            }
             _lastFrameTime = now;
 
             // Update state
