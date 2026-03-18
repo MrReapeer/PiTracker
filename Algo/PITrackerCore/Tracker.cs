@@ -226,9 +226,12 @@ namespace PITrackerCore
             // Confidence Calculation
             double velConf = last.dX == 0 ? 1.0 : 1.0 - Math.Min(1.0, Math.Abs((curDX - last.dX) / (last.dX + 0.1)));
             double sizeConf = last.W == 0 ? 1.0 : 1.0 - Math.Min(1.0, Math.Abs((dimensions.Width - last.W) / last.W));
-            double currentFrameConf = (velConf + sizeConf) / 2.0;
+            double roiConfX = Math.Min(Math.Max(1.0 - ((double)(newOffsetX - cfg.MaxROI) / cfg.MaxROI), 0), 1);
+            double roiConfY = Math.Min(Math.Max(1.0 - ((double)(newOffsetY - cfg.MaxROI) / cfg.MaxROI), 0), 1);
+            double roiConf = Math.Min(roiConfX, roiConfY);
+            double currentFrameConf = (velConf + sizeConf + roiConf) / 3.0;
             double finalConf = last.IsManual ? currentFrameConf : (last.Confidence * cfg.ConfidenceWeight) + (currentFrameConf * (1 - cfg.ConfidenceWeight));
-
+            
             // --- STEP 5: INTEGRATE PREDICTION ---
             // integration of prediction with measurements
             double smoothedX = last.IsManual ? curX : (curX * (1 - cfg.VelocityWeight)) + ((last.X + last.dX) * cfg.VelocityWeight);

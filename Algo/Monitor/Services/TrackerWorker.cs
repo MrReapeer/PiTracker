@@ -181,6 +181,10 @@ namespace Monitor.Services
                         {
                             sw.Restart();
                             result = _tracker.TryLock(_tracker.currentTarget, _state.Settings, frame);
+                            if (result.IsLocked)
+                                _tracker.SetTarget(result);
+                            else
+                                _tracker.ClearTarget();
                             long trackTime = sw.ElapsedTicks;
                             debugInfo += $"Track:{trackTime * 1000000 / Stopwatch.Frequency}us " + (result?.DebugInfo ?? "");
                         }
