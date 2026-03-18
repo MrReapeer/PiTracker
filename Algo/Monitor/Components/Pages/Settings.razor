@@ -6,7 +6,8 @@
 
 <MudText Typo="Typo.h5" Class="mb-4" Color="Color.Primary">Settings</MudText>
 
-<MudGrid Spacing="3">
+<div style="max-height: 85vh; overflow-y: auto; overflow-x: hidden; padding-right: 8px;">
+    <MudGrid Spacing="3">
 
     @* ── Tracker Parameters ────────────────────────────────────────────── *@
     <MudItem xs="12" sm="6">
@@ -103,12 +104,40 @@
                              Min="-1" Max="40" Step="1" Variant="Variant.Outlined" Class="mb-3"
                              HelperText="RPI BCM GPIO Pin for locking trigger. Enter -1 to disable." />
 
-            <MudTextField Label="Serial Port Name" T="string"
-                          Value="Vision.HardwareConfig.SerialPortName"
-                          ValueChanged="@(v => { Vision.HardwareConfig.SerialPortName = v; Vision.SaveSettings(); })"
-                          Variant="Variant.Outlined" Class="mb-0"
-                          HelperText="e.g., /dev/ttyS0 or /dev/serial0 or COM3" />
+            <MudSelect T="string" Label="Serial Port Name" 
+                       Value="Vision.HardwareConfig.SerialPortName"
+                       ValueChanged="OnSerialPortChanged" 
+                       Variant="Variant.Outlined" Class="mb-3">
+                <MudSelectItem T="string" Value="@("")">None</MudSelectItem>
+                @foreach (var port in _serialPorts)
+                {
+                    <MudSelectItem T="string" Value="@port">@port</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudChip T="string" Color="@(Vision.SerialConnected ? Color.Success : Color.Error)" Class="mb-0">
+                @Vision.SerialStatus
+            </MudChip>
         </MudPaper>
     </MudItem>
 
 </MudGrid>
+
+@code {
+    private string[] _serialPorts = Array.Empty<string>();
+
+    protected override void OnInitialized()
+    {
+        try
+        {
+            _serialPorts = System.IO.Ports.SerialPort.GetPortNames();
+        }
+        catch { }
+    }
+
+    private void OnSerialPortChanged(string port)
+    {
+        Vision.HardwareConfig.SerialPortName = port;
+        Vision.SaveSettings();
+    }
+}

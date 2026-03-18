@@ -105,26 +105,7 @@
         </MudItem>
     </MudGrid>
 
-    @* ── Serial Port ───────────────────────────────────────────────────── *@
-    <MudDivider Class="my-4" />
-    <MudText Typo="Typo.h6" Class="mb-3">Serial Port connection</MudText>
-    
-    <MudGrid Spacing="2" Class="mb-4">
-        <MudItem xs="12" sm="6" md="4">
-            <MudSelect T="string" Label="Serial Port" Value="Vision.HardwareConfig.SerialPortName"
-                       ValueChanged="OnSerialPortChanged" Variant="Variant.Outlined">
-                <MudSelectItem T="string" Value="@("")">None</MudSelectItem>
-                @foreach(var port in SerialPorts) {
-                    <MudSelectItem T="string" Value="@port">@port</MudSelectItem>
-                }
-            </MudSelect>
-        </MudItem>
-        <MudItem xs="12" sm="6" md="4" Class="d-flex align-center">
-            <MudChip T="string" Color="@(Vision.SerialConnected ? Color.Success : Color.Error)">
-                @Vision.SerialStatus
-            </MudChip>
-        </MudItem>
-    </MudGrid>
+
 
     @* ── Demo path reminder ────────────────────────────────────────────── *@
     <MudAlert Class="mt-3" Severity="Severity.Info" Dense="true">
@@ -135,7 +116,6 @@
 
 @code {
     private System.Timers.Timer? _refreshTimer;
-    private string[] SerialPorts = Array.Empty<string>();
 
     protected override void OnInitialized()
     {
@@ -144,18 +124,9 @@
         _refreshTimer = new System.Timers.Timer(200);
         _refreshTimer.Elapsed += (_, _) => InvokeAsync(StateHasChanged);
         _refreshTimer.Start();
-
-        try {
-            SerialPorts = System.IO.Ports.SerialPort.GetPortNames();
-        } catch { }
     }
 
-    private void OnSerialPortChanged(string newPort)
-    {
-        Vision.HardwareConfig.SerialPortName = newPort;
-        Vision.SaveSettings();
-        StateHasChanged();
-    }
+
 
     public void Dispose()
     {
