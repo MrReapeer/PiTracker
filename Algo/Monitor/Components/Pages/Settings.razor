@@ -92,4 +92,23 @@
         </MudPaper>
     </MudItem>
 
+    @* ── Hardware Integration ──────────────────────────────────────────── *@
+    <MudItem xs="12" sm="6">
+        <MudPaper Class="pa-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-3">Hardware Integration</MudText>
+
+            <MudNumericField T="int" Label="Hardware Trigger Pin (GPIO)" 
+                             Value="Vision.HardwareConfig.HardwareTriggerPin"
+                             ValueChanged="@(v => { Vision.HardwareConfig.HardwareTriggerPin = v; Vision.SaveSettings(); })"
+                             Min="-1" Max="40" Step="1" Variant="Variant.Outlined" Class="mb-3"
+                             HelperText="RPI BCM GPIO Pin for locking trigger. Enter -1 to disable." />
+
+            <MudTextField Label="Serial Port Name" T="string"
+                          Value="Vision.HardwareConfig.SerialPortName"
+                          ValueChanged="@(v => { Vision.HardwareConfig.SerialPortName = v; Vision.SaveSettings(); })"
+                          Variant="Variant.Outlined" Class="mb-0"
+                          HelperText="e.g., /dev/ttyS0 or /dev/serial0 or COM3" />
+        </MudPaper>
+    </MudItem>
+
 </MudGrid>

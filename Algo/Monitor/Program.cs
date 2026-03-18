@@ -52,6 +52,9 @@ namespace Monitor
             builder.Services.AddSingleton<TrackerWorker>();
             builder.Services.AddHostedService(sp => sp.GetRequiredService<TrackerWorker>());
 
+            // Hardware Integration service for GPIO limits and Serial
+            builder.Services.AddHostedService<HardwareIntegrationService>();
+
             var app = builder.Build();
 
             // Configure the HTTP request pipeline.
