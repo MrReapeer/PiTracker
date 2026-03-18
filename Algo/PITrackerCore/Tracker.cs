@@ -123,9 +123,11 @@ namespace PITrackerCore
 
                         if (currentTarget != null)
                         {
-                            currentTarget = TryLock(currentTarget, currentSettings, frame);
-                            
-                            debugFrame = DrawDebugFrame(debugFrame, prevTarget, currentTarget);
+                            currentTarget = TryLock(currentSettings, frame);
+                            if (currentTarget != null && currentTarget.IsLocked)
+                            {
+                                debugFrame = DrawDebugFrame(debugFrame, prevTarget, currentTarget);
+                            }   
                             if (!currentTarget.IsLocked)
                             {
                                 currentTarget = null;
@@ -142,10 +144,43 @@ namespace PITrackerCore
         {
             isRunning = true;
         }
-        public LockParameters TryLock(LockParameters last, TrackerSettings cfg, Mat frame)
+        public static LockParameters GetLastLocked(LockParameters current)
         {
-            if (frame == null || frame.Empty()) return new LockParameters { IsLocked = false };
-
+            if (current == null)
+                return null;
+            if (current.IsLocked)
+                return current;
+            else
+                return GetLastLocked(current.Seed);
+        }
+        LockParameters lastProcessed = null;
+        public LockParameters TryLock(TrackerSettings cfg, Mat frame)
+        {
+            if (frame == null || frame.Empty()) 
+            {
+                lastProcessed = null;
+                return null;
+            }
+            if (currentTarget != null)  // new manual target
+            {
+                lastProcessed = currentTarget; // remove previous history
+                currentTarget = null; // Clear current target to force using the new seed
+            }
+            else // continue a track
+                if (lastProcessed == null) // first frame
+                {
+                    // no target, no history.
+                lastProcessed = null;
+                return null;
+                }
+            // find the last locked state in the history chain
+            var last = GetLastLocked(lastProcessed);
+            if (last == null) // nevel locked
+            {
+                lastProcessed = null;
+                return null;
+            }
+            
             Stopwatch sw = Stopwatch.StartNew();
             StringBuilder sb = new StringBuilder();
             
@@ -238,7 +273,7 @@ namespace PITrackerCore
             double smoothedY = last.IsManual ? curY : (curY * (1 - cfg.VelocityWeight)) + ((last.Y + last.dY) * cfg.VelocityWeight);
             sb.Append($"Predict:{(sw.ElapsedTicks - startT) * 1000000 / Stopwatch.Frequency}us");
 
-            return new LockParameters
+            lastProcessed = new LockParameters
             {
                 X = smoothedX,
                 Y = smoothedY,
@@ -253,11 +288,14 @@ namespace PITrackerCore
                 BinaryThreshold = activeThreshold,
                 Confidence = finalConf,
                 LockTime = DateTime.Now,
+                Seed = last,
                 IsLocked = finalConf > 0.2, // Failsafe threshold
+                IsSeed = false,
                 IsManual = false,
                 LastRoi = roiRect,
                 DebugInfo = sb.ToString()
             };
+            return last;
         }
         public (double Width, double Height) GetObjectDimensionsManual(Mat binary)
         {
@@ -504,8 +542,8 @@ namespace PITrackerCore
     public class TrackerSettings
     {
         // Process Controls
-        public int MinROI { get; set; } = 40;
-        public int MaxROI { get; set; } = 150;
+        public int MinROI { get; set; } = 30;
+        public int MaxROI { get; set; } = 75;
         public int MinObjSize { get; set; } = 2;
         public int MaxObjSize { get; set; } = 300;
         public int HistogramSmoothingWindow { get; set; } = 3;
@@ -524,6 +562,8 @@ namespace PITrackerCore
 
     public class LockParameters
     {
+        // LockParameters
+        public LockParameters Seed{ get; set; }
         // Object Properties (Absolute Coordinates)
         public double X { get; set; }
         public double Y { get; set; }
@@ -545,6 +585,7 @@ namespace PITrackerCore
         public double Confidence { get; set; } = 1.0;
         public DateTime LockTime { get; set; }
         public bool IsLocked { get; set; }
+        public bool IsSeed { get; set; } = true;
         public bool IsManual { get; set; }
         public Rect LastRoi { get; set; }
         public string DebugInfo { get; set; }

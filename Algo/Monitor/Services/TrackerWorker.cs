@@ -177,17 +177,12 @@ namespace Monitor.Services
 
                         // ── Run tracker ──────────────────────────────────────
                         LockParameters? result = null;
-                        if (_tracker!.currentTarget != null)
-                        {
-                            sw.Restart();
-                            result = _tracker.TryLock(_tracker.currentTarget, _state.Settings, frame);
-                            if (result.IsLocked)
-                                _tracker.SetTarget(result);
-                            else
-                                _tracker.ClearTarget();
-                            long trackTime = sw.ElapsedTicks;
-                            debugInfo += $"Track:{trackTime * 1000000 / Stopwatch.Frequency}us " + (result?.DebugInfo ?? "");
-                        }
+                        sw.Restart();
+                        result = _tracker.TryLock(_state.Settings, frame);
+                        if (result == null)
+                            result = new LockParameters { IsLocked = false };
+                        long trackTime = sw.ElapsedTicks;
+                        debugInfo += $"Track:{trackTime * 1000000 / Stopwatch.Frequency}us " + (result?.DebugInfo ?? "");
 
                         // ── Push to UI (non-blocking) ─────────────────────────
                         sw.Restart();
