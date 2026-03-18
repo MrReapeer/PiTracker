@@ -192,7 +192,9 @@ namespace PITrackerCore
             else
             {
                 // On modern Pi OS, the Pi Camera (ov5647) requires libcamera via GStreamer
-                string pipeline = _pipeline ?? "libcamerasrc ! video/x-raw, width=640, height=480, framerate=30/1 ! videoconvert ! appsink";
+                string pipeline = _pipeline ?? 
+                "libcamerasrc ! video/x-raw, width=1920, height=1080, framerate=30/1 ! videoconvert ! appsink drop=true max-buffers=1";
+                //"libcamerasrc ! video/x-raw, width=640, height=480, framerate=58/1 ! videoconvert ! appsink drop=true max-buffers=1";
                 OpenPipeline(pipeline, VideoCaptureAPIs.GSTREAMER);
             }
         }
@@ -369,14 +371,13 @@ namespace PITrackerCore
             }
             Console.WriteLine();
         }
-        public static void TestProfiles()
+        public static void TestProfiles(string pipeline = null, ILogger? logger = null)
         {
             Console.WriteLine();
             Console.WriteLine("=================================================");
-            Console.WriteLine("  PiTracker Profile Tester");
+            Console.WriteLine("  PiTracker LiveCameraSource Benchmark");
             Console.WriteLine("=================================================");
-            Console.WriteLine("Testing camera-supported profiles using libcamera-vid.");
-            Console.WriteLine("This tests the same modes as rpicam-vid.");
+            Console.WriteLine("Testing pipeline throughput by capturing frames for 3 seconds.");
             Console.WriteLine("Make sure no other camera applications are running.");
             Console.WriteLine("=================================================");
             Console.WriteLine();
@@ -388,68 +389,94 @@ namespace PITrackerCore
                 return;
             }
 
-            // Common resolution and framerate combinations to test (based on camera modes)
-            var profiles = new (int w, int h, int fps)[]
+            var profiles = new List<string>
             {
-                (640, 480, 59),   // Mode: 58.924
-                (1296, 972, 46),  // Mode: 46.3371
-                (1920, 1080, 33), // Mode: 32.8052
-                (2592, 1944, 16)  // Mode: 15.6335
+                "libcamerasrc ! video/x-raw, width=640, height=480, framerate=58/1 ! videoconvert ! appsink drop=true max-buffers=1",
+                "libcamerasrc ! video/x-raw, width=1296, height=972, framerate=46/1 ! videoconvert ! appsink drop=true max-buffers=1"
+
             };
 
-            Console.WriteLine($"Testing {profiles.Length} profile(s)...");
-            Console.WriteLine();
-
-            var workingProfiles = new List<(int w, int h, int fps)>();
-
-            foreach (var (w, h, fps) in profiles)
+            if (!string.IsNullOrWhiteSpace(pipeline))
             {
-                Console.Write($"  {w}x{h}@{fps}  ");
+                if (!profiles.Contains(pipeline))
+                    profiles.Insert(0, pipeline);
+                else
+                    profiles.Remove(pipeline);
+            }
 
-                try
+            string bestProfile = null;
+            double bestFps = 0.0;
+
+            foreach (var testPipeline in profiles)
+            {
+                Console.WriteLine($"\n--- Testing profile: {testPipeline}");
+
+                using (var camera = new LiveCameraSource(testPipeline, logger))
                 {
-                    // Test with libcamera-vid
-                    var process = System.Diagnostics.Process.Start("libcamera-vid", $"--width {w} --height {h} --framerate {fps} --timeout 2000 --output /dev/null");
-                    process.WaitForExit();
-                    if (process.ExitCode == 0)
+                    try
                     {
-                        Console.WriteLine("*** WORKS ***");
-                        workingProfiles.Add((w, h, fps));
+                        camera.Start();
+                        if (!camera.IsRunning)
+                        {
+                            Console.WriteLine($"Failed to start LiveCameraSource for pipeline: {testPipeline}");
+                            continue;
+                        }
+
+                        var sw = System.Diagnostics.Stopwatch.StartNew();
+                        var target = TimeSpan.FromSeconds(3);
+                        long frameCount = 0;
+
+                        while (sw.Elapsed < target)
+                        {
+                            var frame = camera.GetNextFrame().GetAwaiter().GetResult();
+                            if (frame != null && !frame.Empty())
+                            {
+                                frameCount++;
+                                frame.Dispose();
+                            }
+                            else
+                            {
+                                System.Threading.Thread.Sleep(10);
+                            }
+                        }
+
+                        sw.Stop();
+                        double fps = frameCount / sw.Elapsed.TotalSeconds;
+                        Console.WriteLine($"Benchmark complete: captured {frameCount} frames in {sw.Elapsed.TotalSeconds:F2} seconds.");
+                        Console.WriteLine($"Estimated FPS: {fps:F2}");
+
+                        if (fps > bestFps)
+                        {
+                            bestFps = fps;
+                            bestProfile = testPipeline;
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        Console.WriteLine($"failed (exit code {process.ExitCode})  [skip]");
+                        Console.WriteLine($"ERROR during benchmark for pipeline '{testPipeline}': {ex.Message}");
+                        logger?.LogError(ex, "LiveCameraSource benchmark failure");
+                    }
+                    finally
+                    {
+                        camera.Stop();
+                        Console.WriteLine("Camera stopped.");
                     }
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"ERROR: {ex.Message}");
-                }
-
-                // Short delay between tests
-                System.Threading.Thread.Sleep(1000);
             }
 
             Console.WriteLine();
-            if (workingProfiles.Any())
+            if (bestProfile is not null)
             {
-                Console.WriteLine($"=================================================");
-                Console.WriteLine($"  Working profiles:");
-                foreach (var (w, h, fps) in workingProfiles)
-                {
-                    Console.WriteLine($"    {w}x{h} @ {fps}fps");
-                }
-                Console.WriteLine($"=================================================");
-                var best = workingProfiles.OrderByDescending(p => p.fps).First();
-                Console.WriteLine($"  Recommended: {best.w}x{best.h} @ {best.fps}fps");
-                Console.WriteLine($"  To use, modify LiveCameraSource pipeline in TrackerWorker.cs:");
-                Console.WriteLine($"    string pipeline = \"libcamerasrc ! video/x-raw, width={best.w}, height={best.h}, framerate={best.fps}/1 ! videoconvert ! appsink\";");
-                Console.WriteLine($"=================================================");
+                Console.WriteLine("=================================================");
+                Console.WriteLine($"Best pipeline: {bestProfile}");
+                Console.WriteLine($"Best FPS: {bestFps:F2}");
+                Console.WriteLine("=================================================");
             }
             else
             {
-                Console.WriteLine("No profiles worked. Check camera connection and libcamera setup.");
+                Console.WriteLine("No working pipeline found during benchmark.");
             }
+
             Console.WriteLine();
         }
     }

@@ -180,7 +180,7 @@ namespace Monitor.Services
                         if (_tracker!.currentTarget != null)
                         {
                             sw.Restart();
-                            //result = _tracker.TryLock(_tracker.currentTarget, _state.Settings, frame);
+                            result = _tracker.TryLock(_tracker.currentTarget, _state.Settings, frame);
                             long trackTime = sw.ElapsedTicks;
                             debugInfo += $"Track:{trackTime * 1000000 / Stopwatch.Frequency}us " + (result?.DebugInfo ?? "");
                         }
