@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Text;
 using Point = OpenCvSharp.Point;
+using System.Runtime.InteropServices;
 
 namespace PITrackerCore
 {
@@ -146,6 +147,57 @@ namespace PITrackerCore
             isRunning = true;
         }
         LockParameters lastProcessed = null;
+        static void FDisaplay()
+        {
+            Console.WriteLine("Starting Live Framebuffer Feed...");
+
+            // 1. Open the file ONCE outside the loop to save CPU
+            using FileStream fs = new FileStream("/dev/fb0", FileMode.Open, FileAccess.Write);
+
+            int frameCount = 0;
+            int boxX = 100;
+            int boxDirection = 15;
+
+            // Run continuously until you stop the app
+            while (true)
+            {
+                // Create the base frame
+                using Mat frame = new Mat(480, 720, MatType.CV_8UC3, new Scalar(40, 40, 40));
+
+                // Draw a live frame counter
+                Cv2.PutText(frame, $"LIVE STREAM: {frameCount}", new Point(50, 80), 
+                            HersheyFonts.HersheySimplex, 1.5, new Scalar(255, 255, 255), 3);
+
+                // Draw a bouncing red box to prove it's not frozen
+                Cv2.Rectangle(frame, new Rect(boxX, 150, 150, 150), new Scalar(0, 0, 255), thickness: -1);
+                
+                // Update box position
+                boxX += boxDirection;
+                if (boxX > 500 || boxX < 50) boxDirection = -boxDirection;
+
+                // 2. CRITICAL FIX: Convert to 16-bit BGR565!
+                // This stops the massive 200% zoom and fixes the colors.
+                using Mat fbFrame = new Mat();
+                Cv2.CvtColor(frame, fbFrame, ColorConversionCodes.BGR2BGR565);
+
+                // Extract bytes
+                int byteSize = (int)(fbFrame.Total() * fbFrame.ElemSize());
+                byte[] frameBytes = new byte[byteSize];
+                Marshal.Copy(fbFrame.Data, frameBytes, 0, byteSize);
+
+                // 3. CRITICAL FIX: Rewind the pointer to the top-left pixel!
+                // This prevents the "No space left on device" crash.
+                fs.Seek(0, SeekOrigin.Begin);
+                
+                // Blast to the screen
+                fs.Write(frameBytes, 0, frameBytes.Length);
+
+                frameCount++;
+                
+                // Limit to roughly 30 FPS so we don't melt the CPU
+                Thread.Sleep(33); 
+            }
+        }
         public LockParameters TryLock(TrackerSettings cfg, Mat frame)
         {
             if (frame == null || frame.Empty()) 
@@ -272,6 +324,8 @@ namespace PITrackerCore
             double smoothedY = last.IsManual ? curY : (curY * (1 - cfg.VelocityWeight)) + ((last.Y + last.dY) * cfg.VelocityWeight);
             sb.Append($"Predict:{(sw.ElapsedTicks - startT) * 1000000 / Stopwatch.Frequency}us");
 
+            // Display the frame on screen
+            //Cv2.ImShow("Tracker", frame);
             lastProcessed = new LockParameters
             {
                 X = smoothedX,

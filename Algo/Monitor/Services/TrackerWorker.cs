@@ -18,6 +18,7 @@ namespace Monitor.Services
 
         private ICameraSource? _camera;
         private PiTrackerAlgo? _tracker;
+        private FramebufferRenderer? _framebufferRenderer;
         private OperationMode _currentMode;
         private bool _isPlaying = true;
 
@@ -102,6 +103,17 @@ namespace Monitor.Services
         {
             _state = state;
             _logger = logger;
+
+            try
+            {
+                _framebufferRenderer = new FramebufferRenderer();
+                _logger.LogInformation("FramebufferRenderer initialized.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "FramebufferRenderer could not be initialized. Skipping framebuffer output.");
+                _framebufferRenderer = null;
+            }
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -183,6 +195,16 @@ namespace Monitor.Services
                             result = new LockParameters { IsLocked = false };
                         long trackTime = sw.ElapsedTicks;
                         debugInfo += $"Track:{trackTime * 1000000 / Stopwatch.Frequency}us " + (result?.DebugInfo ?? "");
+
+                        // ── Display on framebuffer (if available) ─────────────
+                        try
+                        {
+                            _framebufferRenderer?.Display(frame);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "FramebufferRenderer.Display failed.");
+                        }
 
                         // ── Push to UI (non-blocking) ─────────────────────────
                         sw.Restart();
@@ -268,6 +290,12 @@ namespace Monitor.Services
             try { _camera?.Dispose(); } catch { }
             _camera = null;
             _tracker = null;
+        }
+
+        public override void Dispose()
+        {
+            _framebufferRenderer?.Dispose();
+            base.Dispose();
         }
     }
 }
