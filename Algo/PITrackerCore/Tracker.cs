@@ -34,7 +34,36 @@ namespace PITrackerCore
             currentTarget = target;
             ReprocessCurrentFrame = true;
         }
+        // Add this inside PITrackerCore.Tracker
+        public void SetTarget(double nx, double ny, int frameWidth, int frameHeight)
+        {
+            // Convert normalized [-1..1] to absolute pixels
+            var px = ((nx + 1.0) / 2.0) * frameWidth;
+            var py = ((ny + 1.0) / 2.0) * frameHeight;
+            
+            // Create a sensible initial seed box (e.g., 1/8th of the screen)
+            var seedW = Math.Max(40, frameWidth / 8);
+            var seedH = Math.Max(40, frameHeight / 8);
 
+            var manualSeed = new LockParameters
+            {
+                IsManual = true,
+                IsLocked = true,
+                IsSeed = true,
+                X = px - (seedW / 2.0), // Center the box on the coordinates
+                Y = py - (seedH / 2.0),
+                W = seedW,
+                H = seedH,
+                RoiOffsetX = 64,
+                RoiOffsetY = 64,
+                LockTime = DateTime.UtcNow,
+                Confidence = 1.0,
+                LastRoi = new Rect((int)(px - seedW), (int)(py - seedH), seedW * 2, seedH * 2),
+                DebugInfo = "Manual Keyboard Command"
+            };
+
+            SetTarget(manualSeed); // Call your existing method
+        }
         public void ClearTarget()
         {
             currentTarget = null;
