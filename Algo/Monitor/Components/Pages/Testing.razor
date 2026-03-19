@@ -50,6 +50,21 @@
             Frame @Worker.CurrentFrameIndex / @(Worker.TotalFrameCount - 1)
         </MudChip>
     </MudStack>
+    
+    @* ── Capture Button (Always Enabled) ───────────────────────────────── *@
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+        <MudText Typo="Typo.caption" Color="Color.Secondary">Capture Mode:</MudText>
+        @if (Worker.IsCapturing)
+        {
+            <MudButton StartIcon="@Icons.Material.Filled.Stop" Variant="Variant.Filled" 
+                       Color="Color.Error" OnClick="StopCapture">Stop Capture</MudButton>
+        }
+        else
+        {
+            <MudButton StartIcon="@Icons.Material.Filled.Videocam" Variant="Variant.Filled" 
+                       Color="Color.Info" OnClick="StartCapture">Live Capture</MudButton>
+        }
+    </MudStack>
 
     @* ── Seek slider ───────────────────────────────────────────────────── *@
     <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-1">Seek</MudText>
@@ -84,7 +99,13 @@
             <MudText Typo="Typo.caption" Color="Color.Secondary">Stream FPS</MudText>
             <MudText Typo="Typo.body1">@Vision.FpsActual.ToString("F1")</MudText>
         </MudItem>
+        <MudItem xs="12" sm="6">
+            <MudText Typo="Typo.caption" Color="Color.Secondary">Debug Info</MudText>
+            <MudText Typo="Typo.body2" Style="font-family: monospace;">@Vision.LatestDebugInfo</MudText>
+        </MudItem>
     </MudGrid>
+
+
 
     @* ── Demo path reminder ────────────────────────────────────────────── *@
     <MudAlert Class="mt-3" Severity="Severity.Info" Dense="true">
@@ -104,6 +125,8 @@
         _refreshTimer.Elapsed += (_, _) => InvokeAsync(StateHasChanged);
         _refreshTimer.Start();
     }
+
+
 
     public void Dispose()
     {
@@ -139,4 +162,7 @@
         Worker.Seek(value);
         StateHasChanged();
     }
+
+    private void StartCapture() { Worker.StartCapture(); StateHasChanged(); }
+    private void StopCapture() { Worker.StopCapture(); StateHasChanged(); }
 }

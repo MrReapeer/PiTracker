@@ -24,7 +24,7 @@
         <MudButton Variant="Variant.Text" Color="Color.Secondary" StartIcon="@Icons.Material.Filled.Fullscreen"
                    OnClick="RequestFullscreen" Style="font-family: monospace;">FULLSCREEN</MudButton>
 
-        <MudChip T="string" Size="Size.Small" Color="Color.Dark" Class="ml-4" Style="font-family: monospace;">@($"{Vision.FpsActual:F1} fps")</MudChip>
+        <MudChip T="string" Size="Size.Small" Color="Color.Dark" Class="ml-4" Style="font-family: monospace;">@($"Cap: {Vision.CaptureFps:F1} / Str: {Vision.FpsActual:F1} fps")</MudChip>
     </div>
 
     @* ── Camera error banner ──────────────────────────────────────────── *@

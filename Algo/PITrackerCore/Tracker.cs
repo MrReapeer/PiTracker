@@ -1,10 +1,12 @@
 using OpenCvSharp;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Text;
 using Point = OpenCvSharp.Point;
+using System.Runtime.InteropServices;
 
 namespace PITrackerCore
 {
@@ -32,7 +34,36 @@ namespace PITrackerCore
             currentTarget = target;
             ReprocessCurrentFrame = true;
         }
+        // Add this inside PITrackerCore.Tracker
+        public void SetTarget(double nx, double ny, int frameWidth, int frameHeight)
+        {
+            // Convert normalized [-1..1] to absolute pixels
+            var px = ((nx + 1.0) / 2.0) * frameWidth;
+            var py = ((ny + 1.0) / 2.0) * frameHeight;
+            
+            // Create a sensible initial seed box (e.g., 1/8th of the screen)
+            var seedW = Math.Max(40, frameWidth / 8);
+            var seedH = Math.Max(40, frameHeight / 8);
 
+            var manualSeed = new LockParameters
+            {
+                IsManual = true,
+                IsLocked = true,
+                IsSeed = true,
+                X = px - (seedW / 2.0), // Center the box on the coordinates
+                Y = py - (seedH / 2.0),
+                W = seedW,
+                H = seedH,
+                RoiOffsetX = 64,
+                RoiOffsetY = 64,
+                LockTime = DateTime.UtcNow,
+                Confidence = 1.0,
+                LastRoi = new Rect((int)(px - seedW), (int)(py - seedH), seedW * 2, seedH * 2),
+                DebugInfo = "Manual Keyboard Command"
+            };
+
+            SetTarget(manualSeed); // Call your existing method
+        }
         public void ClearTarget()
         {
             currentTarget = null;
@@ -123,9 +154,11 @@ namespace PITrackerCore
 
                         if (currentTarget != null)
                         {
-                            currentTarget = TryLock(currentTarget, currentSettings, frame);
-                            
-                            debugFrame = DrawDebugFrame(debugFrame, prevTarget, currentTarget);
+                            currentTarget = TryLock(currentSettings, frame);
+                            if (currentTarget != null && currentTarget.IsLocked)
+                            {
+                                debugFrame = DrawDebugFrame(debugFrame, prevTarget, currentTarget);
+                            }   
                             if (!currentTarget.IsLocked)
                             {
                                 currentTarget = null;
@@ -142,10 +175,90 @@ namespace PITrackerCore
         {
             isRunning = true;
         }
-        public LockParameters TryLock(LockParameters last, TrackerSettings cfg, Mat frame)
+        LockParameters lastProcessed = null;
+        static void FDisaplay()
         {
-            if (frame == null || frame.Empty()) return new LockParameters { IsLocked = false };
+            Console.WriteLine("Starting Live Framebuffer Feed...");
 
+            // 1. Open the file ONCE outside the loop to save CPU
+            using FileStream fs = new FileStream("/dev/fb0", FileMode.Open, FileAccess.Write);
+
+            int frameCount = 0;
+            int boxX = 100;
+            int boxDirection = 15;
+
+            // Run continuously until you stop the app
+            while (true)
+            {
+                // Create the base frame
+                using Mat frame = new Mat(480, 720, MatType.CV_8UC3, new Scalar(40, 40, 40));
+
+                // Draw a live frame counter
+                Cv2.PutText(frame, $"LIVE STREAM: {frameCount}", new Point(50, 80), 
+                            HersheyFonts.HersheySimplex, 1.5, new Scalar(255, 255, 255), 3);
+
+                // Draw a bouncing red box to prove it's not frozen
+                Cv2.Rectangle(frame, new Rect(boxX, 150, 150, 150), new Scalar(0, 0, 255), thickness: -1);
+                
+                // Update box position
+                boxX += boxDirection;
+                if (boxX > 500 || boxX < 50) boxDirection = -boxDirection;
+
+                // 2. CRITICAL FIX: Convert to 16-bit BGR565!
+                // This stops the massive 200% zoom and fixes the colors.
+                using Mat fbFrame = new Mat();
+                Cv2.CvtColor(frame, fbFrame, ColorConversionCodes.BGR2BGR565);
+
+                // Extract bytes
+                int byteSize = (int)(fbFrame.Total() * fbFrame.ElemSize());
+                byte[] frameBytes = new byte[byteSize];
+                Marshal.Copy(fbFrame.Data, frameBytes, 0, byteSize);
+
+                // 3. CRITICAL FIX: Rewind the pointer to the top-left pixel!
+                // This prevents the "No space left on device" crash.
+                fs.Seek(0, SeekOrigin.Begin);
+                
+                // Blast to the screen
+                fs.Write(frameBytes, 0, frameBytes.Length);
+
+                frameCount++;
+                
+                // Limit to roughly 30 FPS so we don't melt the CPU
+                Thread.Sleep(33); 
+            }
+        }
+        public LockParameters TryLock(TrackerSettings cfg, Mat frame)
+        {
+            if (frame == null || frame.Empty()) 
+            {
+                lastProcessed = null;
+                return null;
+            }
+            if (currentTarget != null)  // new manual target
+            {
+                lastProcessed = currentTarget; // remove previous history
+                currentTarget = null; // Clear current target to force using the new seed
+            }
+            else // continue a track
+                if (lastProcessed == null) // first frame
+                {
+                    // no target, no history.
+                lastProcessed = null;
+                return null;
+                }
+                // find the last locked state in the history chain
+            
+            var train = new LockTrain(LockParameters.GetLastLocked(LockParameters.GetLastLocked(lastProcessed)), 5);
+            var last = train.GetSmoothened();
+            if (lastProcessed.IsManual)
+            last = lastProcessed;
+
+            if (last == null) // nevel locked
+            {
+                lastProcessed = null;
+                return null;
+            }
+            
             Stopwatch sw = Stopwatch.StartNew();
             StringBuilder sb = new StringBuilder();
             
@@ -226,16 +339,23 @@ namespace PITrackerCore
             // Confidence Calculation
             double velConf = last.dX == 0 ? 1.0 : 1.0 - Math.Min(1.0, Math.Abs((curDX - last.dX) / (last.dX + 0.1)));
             double sizeConf = last.W == 0 ? 1.0 : 1.0 - Math.Min(1.0, Math.Abs((dimensions.Width - last.W) / last.W));
-            double currentFrameConf = (velConf + sizeConf) / 2.0;
+            double roiConfX = Math.Min(Math.Max(1.0 - ((double)(newOffsetX - cfg.MaxROI) / cfg.MaxROI), 0), 1);
+            double roiConfY = Math.Min(Math.Max(1.0 - ((double)(newOffsetY - cfg.MaxROI) / cfg.MaxROI), 0), 1);
+            double roiConf = Math.Min(roiConfX, roiConfY);
+            double lostConf = LockParameters.GetLockedUnloackedRatio(lastProcessed, 30);
+            double currentFrameConf = (velConf + sizeConf + roiConf + lostConf) / 4.0;
+            
             double finalConf = last.IsManual ? currentFrameConf : (last.Confidence * cfg.ConfidenceWeight) + (currentFrameConf * (1 - cfg.ConfidenceWeight));
-
+            
             // --- STEP 5: INTEGRATE PREDICTION ---
             // integration of prediction with measurements
             double smoothedX = last.IsManual ? curX : (curX * (1 - cfg.VelocityWeight)) + ((last.X + last.dX) * cfg.VelocityWeight);
             double smoothedY = last.IsManual ? curY : (curY * (1 - cfg.VelocityWeight)) + ((last.Y + last.dY) * cfg.VelocityWeight);
             sb.Append($"Predict:{(sw.ElapsedTicks - startT) * 1000000 / Stopwatch.Frequency}us");
 
-            return new LockParameters
+            // Display the frame on screen
+            //Cv2.ImShow("Tracker", frame);
+            lastProcessed = new LockParameters
             {
                 X = smoothedX,
                 Y = smoothedY,
@@ -250,11 +370,14 @@ namespace PITrackerCore
                 BinaryThreshold = activeThreshold,
                 Confidence = finalConf,
                 LockTime = DateTime.Now,
+                Seed = last,
                 IsLocked = finalConf > 0.2, // Failsafe threshold
+                IsSeed = false,
                 IsManual = false,
                 LastRoi = roiRect,
                 DebugInfo = sb.ToString()
             };
+            return lastProcessed;
         }
         public (double Width, double Height) GetObjectDimensionsManual(Mat binary)
         {
@@ -501,8 +624,8 @@ namespace PITrackerCore
     public class TrackerSettings
     {
         // Process Controls
-        public int MinROI { get; set; } = 40;
-        public int MaxROI { get; set; } = 150;
+        public int MinROI { get; set; } = 30;
+        public int MaxROI { get; set; } = 75;
         public int MinObjSize { get; set; } = 2;
         public int MaxObjSize { get; set; } = 300;
         public int HistogramSmoothingWindow { get; set; } = 3;
@@ -519,8 +642,100 @@ namespace PITrackerCore
             System.AppContext.BaseDirectory, "demo_frames");
     }
 
+    public class LockTrain
+    {
+        List<LockParameters> history = new List<LockParameters>();
+        public LockTrain(LockParameters initial, int maxDepth)
+        {
+            // use GetLastLocked to get all the history chain from the initial seed
+            var current = initial;
+            while (current != null)
+            {
+                if (current.IsLocked)
+                    history.Add(current);
+                if (history.Count >= maxDepth) break;
+                current = current.Seed;
+            }
+        }
+        float decayingAverage(List<float> values)
+        {
+            // Example of a decaying average giving more weight to recent entries
+            float totalWeight = 0;
+            float weightedSum = 0;
+            float decayFactor = 0.5f; // Recent entries get more weight
+            float weight = 1;
+            for (int i = values.Count - 1; i >= 0; i--, weight += (int)(weight * decayFactor))
+            {
+                totalWeight += weight;
+                weightedSum += weight * (float)values[i]; // Example using Confidence as the value
+            }
+
+            return totalWeight > 0 ? weightedSum / totalWeight : 0;
+        }
+        public LockParameters GetSmoothened()
+        {
+            if (history.Count == 0) return null;
+
+            // Simple average of all locked states in the history
+            double avgX = decayingAverage(history.Select(p => (float)p.X).ToList());
+            double avgY = decayingAverage(history.Select(p => (float)p.Y).ToList());
+            double avgW = decayingAverage(history.Select(p => (float)p.W).ToList());
+            double avgH = decayingAverage(history.Select(p => (float)p.H).ToList());
+            double avfRoiXOffset = decayingAverage(history.Select(p => (float)p.RoiOffsetX).ToList());
+            double avfRoiYOffset = decayingAverage(history.Select(p => (float)p.RoiOffsetY).ToList());
+            double avgDx = decayingAverage(history.Select(p => (float)p.dX).ToList());
+            double avgDy = decayingAverage(history.Select(p => (float)p.dY).ToList());
+            double avgDw = decayingAverage(history.Select(p => (float)p.dW).ToList());
+            double avgDh = decayingAverage(history.Select(p => (float)p.dH).ToList());
+            double binaryThreshold = decayingAverage(history.Select(p => (float)p.BinaryThreshold).ToList());
+
+
+            return new LockParameters
+            {            
+                X = avgX,
+                Y = avgY,
+                W = avgW,
+                H = avgH,
+                RoiOffsetX = (int)avfRoiXOffset,
+                RoiOffsetY = (int)avfRoiYOffset,
+                dX = avgDx,
+                dY = avgDy,
+                dW = avgDw,
+                dH = avgDh,
+                BinaryThreshold = (int)binaryThreshold,
+                IsManual = false,
+                IsLocked = true
+            };
+        }
+    }
     public class LockParameters
     {
+        public static float GetLockedUnloackedRatio(LockParameters current, int depth = 10)
+        {
+            // ratio of locked and unlocked
+            int lockedCount = 0;
+            int totalCount = 0;
+            var currentNode = current;
+            while (currentNode != null && totalCount < depth)            
+            {
+                if (currentNode.IsLocked) lockedCount++;
+                totalCount++;
+                currentNode = currentNode.Seed;
+            }
+            return totalCount > 0 ? (float)lockedCount / totalCount : 0;
+        }
+        public static LockParameters GetLastLocked(LockParameters current)
+        {
+            if (current == null)
+                return null;
+            if (current.IsLocked)
+                return current;
+            else
+                return GetLastLocked(current.Seed);
+        }
+        
+        // LockParameters
+        public LockParameters Seed{ get; set; }
         // Object Properties (Absolute Coordinates)
         public double X { get; set; }
         public double Y { get; set; }
@@ -542,6 +757,7 @@ namespace PITrackerCore
         public double Confidence { get; set; } = 1.0;
         public DateTime LockTime { get; set; }
         public bool IsLocked { get; set; }
+        public bool IsSeed { get; set; } = true;
         public bool IsManual { get; set; }
         public Rect LastRoi { get; set; }
         public string DebugInfo { get; set; }

@@ -4,6 +4,8 @@ using MudBlazor.Services;
 using System.Net;
 using System.Net.Sockets;
 using System.Linq;
+using PITrackerCore;
+using System.Threading.Tasks;
 
 namespace Monitor
 {
@@ -11,6 +13,18 @@ namespace Monitor
     {
         public static void Main(string[] args)
         {
+            if (args.Contains("--find-camera"))
+            {
+                PITrackerCore.LiveCameraSource.FindCamera();
+                return;
+            }
+
+            if (args.Contains("--test-profiles"))
+            {
+                PITrackerCore.LiveCameraSource.TestProfiles();
+                return;
+            }
+
             var builder = WebApplication.CreateBuilder(args);
 
             // Configure listening URLs (listen on all interfaces for external access)
@@ -37,6 +51,9 @@ namespace Monitor
             // then wire it up as the hosted service using the same instance.
             builder.Services.AddSingleton<TrackerWorker>();
             builder.Services.AddHostedService(sp => sp.GetRequiredService<TrackerWorker>());
+
+            // Hardware Integration service for GPIO limits and Serial
+            builder.Services.AddHostedService<HardwareIntegrationService>();
 
             var app = builder.Build();
 

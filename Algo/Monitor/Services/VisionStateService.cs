@@ -1,5 +1,7 @@
 using OpenCvSharp;
 using PITrackerCore;
+using System.Text.Json;
+using System.IO;
 
 namespace Monitor.Services
 {
@@ -12,9 +14,58 @@ namespace Monitor.Services
     public class VisionStateService
     {
         // ─── Mode & Configuration ─────────────────────────────────────────────
-        public OperationMode Mode { get; set; } = OperationMode.Demo;
-        public TrackerSettings Settings { get; } = new TrackerSettings();
-        public StreamSettings StreamConfig { get; } = new StreamSettings();
+        public OperationMode Mode { get; set; } = OperationMode.Live;
+        public TrackerSettings Settings { get; private set; } = new TrackerSettings();
+        public StreamSettings StreamConfig { get; private set; } = new StreamSettings();
+        public HardwareSettings HardwareConfig { get; private set; } = new HardwareSettings();
+
+        // ─── Persistence ──────────────────────────────────────────────────────
+        private readonly string _settingsPath = Path.Combine(AppContext.BaseDirectory, "pitracker_settings.json");
+
+        public VisionStateService()
+        {
+            LoadSettings();
+        }
+
+        public void SaveSettings()
+        {
+            try
+            {
+                var combined = new { Settings, StreamConfig, HardwareConfig };
+                string json = JsonSerializer.Serialize(combined, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_settingsPath, json);
+            }
+            catch { }
+        }
+
+        public void LoadSettings()
+        {
+            try
+            {
+                if (File.Exists(_settingsPath))
+                {
+                    string json = File.ReadAllText(_settingsPath);
+                    using var doc = JsonDocument.Parse(json);
+                    
+                    if (doc.RootElement.TryGetProperty("Settings", out var settingsEl))
+                    {
+                        var loadedSettings = JsonSerializer.Deserialize<TrackerSettings>(settingsEl.GetRawText());
+                        if (loadedSettings != null) Settings = loadedSettings;
+                    }
+                    if (doc.RootElement.TryGetProperty("StreamConfig", out var streamEl))
+                    {
+                        var loadedStream = JsonSerializer.Deserialize<StreamSettings>(streamEl.GetRawText());
+                        if (loadedStream != null) StreamConfig = loadedStream;
+                    }
+                    if (doc.RootElement.TryGetProperty("HardwareConfig", out var hwEl))
+                    {
+                        var loadedHw = JsonSerializer.Deserialize<HardwareSettings>(hwEl.GetRawText());
+                        if (loadedHw != null) HardwareConfig = loadedHw;
+                    }
+                }
+            }
+            catch { }
+        }
 
         // ─── Shared State ─────────────────────────────────────────────────────
         public LockParameters? CurrentLock { get; private set; }
@@ -23,6 +74,11 @@ namespace Monitor.Services
         public int NativeHeight { get; private set; } = 480;
         public bool IsCameraAvailable { get; private set; } = true;
         public string CameraError { get; private set; } = string.Empty;
+        public string LatestDebugInfo { get; private set; } = string.Empty;
+        
+        // Serial Status
+        public bool SerialConnected { get; set; } = false;
+        public string SerialStatus { get; set; } = "Disconnected";
 
         // ─── Events ───────────────────────────────────────────────────────────
         /// <summary>Fired on the worker thread after every frame. Subscribers must dispatch to UI thread.</summary>
@@ -34,6 +90,8 @@ namespace Monitor.Services
 
         // ─── Frame Stats ──────────────────────────────────────────────────────
         public double FpsActual { get; private set; }
+        public double CaptureFps { get; private set; }
+        private const double SmoothingAlpha = 0.1;
         private DateTime _lastFrameTime = DateTime.MinValue;
 
         // ─── Camera error reporting ───────────────────────────────────────────
@@ -50,13 +108,26 @@ namespace Monitor.Services
             CameraError = string.Empty;
         }
 
+        public void SetLatestDebugInfo(string info)
+        {
+            LatestDebugInfo = info;
+        }
+
+        public void SetCaptureFps(double fps)
+        {
+            CaptureFps = CaptureFps == 0 ? fps : SmoothingAlpha * fps + (1 - SmoothingAlpha) * CaptureFps;
+        }
+
         // ─── Called by TrackerWorker on every processed frame ─────────────────
         public void PushFrame(Mat frame, LockParameters? lockResult)
         {
             // Measure actual FPS
             var now = DateTime.UtcNow;
             if (_lastFrameTime != DateTime.MinValue)
-                FpsActual = 1.0 / (now - _lastFrameTime).TotalSeconds;
+            {
+                double newFps = 1.0 / (now - _lastFrameTime).TotalSeconds;
+                FpsActual = FpsActual == 0 ? newFps : SmoothingAlpha * newFps + (1 - SmoothingAlpha) * FpsActual;
+            }
             _lastFrameTime = now;
 
             // Update state
@@ -195,5 +266,14 @@ namespace Monitor.Services
         public int StreamHeight { get; set; } = 480;
         /// <summary>JPEG quality 0–100.</summary>
         public int JpegQuality { get; set; } = 75;
+    }
+
+    /// <summary>
+    /// Settings for hardware interactions (RPI GPIO and Serial output)
+    /// </summary>
+    public class HardwareSettings
+    {
+        public int HardwareTriggerPin { get; set; } = 4;
+        public string SerialPortName { get; set; } = "";
     }
 }
