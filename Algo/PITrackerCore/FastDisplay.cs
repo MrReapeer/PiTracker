@@ -4,7 +4,32 @@ using System.Runtime.InteropServices;
 using OpenCvSharp;
 using System.Diagnostics; // Add this at the top
 
-public class FramebufferRenderer : IDisposable
+public abstract class FrameRenderer : IDisposable
+{
+    public static FrameRenderer Create()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            Console.WriteLine("[System] Windows detected. Using Windowed Renderer.");
+            return new WinFrameRenderer();
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            Console.WriteLine("[System] Linux detected. Using Direct Framebuffer Renderer.");
+            return new LinuxFrameRenderer();
+        }
+        else
+        {
+            throw new PlatformNotSupportedException("OS not supported for rendering.");
+        }
+    }
+
+    // This is required in the base class so your main app can call it polymorphically
+    public abstract void Display(Mat newFrame);
+
+    public abstract void Dispose();
+}
+public class LinuxFrameRenderer : FrameRenderer
 {
     // --- Native Linux Interop for Memory Mapping ---
     [DllImport("libc", SetLastError = true)]
@@ -41,7 +66,7 @@ public class FramebufferRenderer : IDisposable
     private readonly int _targetWidth = 720;
     private readonly int _targetHeight = 480;
 
-    public FramebufferRenderer(string devicePath = "/dev/fb0")
+    public LinuxFrameRenderer(string devicePath = "/dev/fb0")
     {
         // 1. Calculate exact memory size (720x480 @ 16-bit color = 2 bytes per pixel)
         _fbSize = _targetWidth * _targetHeight * 2;
@@ -63,7 +88,7 @@ public class FramebufferRenderer : IDisposable
         _renderThread.Start();
     }
 
-    public void Display(Mat newFrame)
+    public override void Display(Mat newFrame)
     {
         if (newFrame == null || newFrame.Empty()) return;
 
@@ -140,7 +165,7 @@ public class FramebufferRenderer : IDisposable
         }
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
         _isRunning = false;
         _renderThread?.Join();
@@ -151,6 +176,87 @@ public class FramebufferRenderer : IDisposable
 
         _resizedFrame?.Dispose();
         _fbFrame?.Dispose();
+        _pendingFrame?.Dispose();
+    }
+}
+// ==========================================
+// WINDOWS IMPLEMENTATION (OpenCV Window)
+// ==========================================
+public class WinFrameRenderer : FrameRenderer
+{
+    private readonly Thread _renderThread;
+    private bool _isRunning = true;
+
+    private Mat _pendingFrame = null;
+    private readonly object _frameLock = new object();
+
+    private readonly string _windowName = "Edge Telemetry HUD (Windows Dev)";
+
+    public WinFrameRenderer()
+    {
+        _renderThread = new Thread(RenderLoop)
+        {
+            IsBackground = true,
+            Name = "Win_FastRenderer"
+        };
+        _renderThread.Start();
+    }
+
+    public override void Display(Mat newFrame)
+    {
+        if (newFrame == null || newFrame.Empty()) return;
+
+        lock (_frameLock)
+        {
+            _pendingFrame?.Dispose();
+            _pendingFrame = newFrame.Clone();
+        }
+    }
+
+    private void RenderLoop()
+    {
+        while (_isRunning)
+        {
+            Mat frameToRender = null;
+
+            lock (_frameLock)
+            {
+                if (_pendingFrame != null)
+                {
+                    frameToRender = _pendingFrame;
+                    _pendingFrame = null;
+                }
+            }
+
+            if (frameToRender != null)
+            {
+                try
+                {
+                    Cv2.ImShow(_windowName, frameToRender);
+                }
+                finally
+                {
+                    frameToRender.Dispose();
+                }
+            }
+            else
+            {
+                // Sleep to avoid thrashing the CPU if no new frames arrive
+                Thread.Sleep(5);
+            }
+
+            // HighGUI requires pumping the message loop on the thread that created the window
+            Cv2.WaitKey(1);
+        }
+
+        // Clean up the GUI window when the thread exits
+        Cv2.DestroyAllWindows();
+    }
+
+    public override void Dispose()
+    {
+        _isRunning = false;
+        _renderThread?.Join();
         _pendingFrame?.Dispose();
     }
 }

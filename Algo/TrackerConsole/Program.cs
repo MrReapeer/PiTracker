@@ -16,7 +16,7 @@ internal class Program
         camera.Start();
 
         // 1. Initialize Components
-        var renderer = new FramebufferRenderer("/dev/fb0");
+        var renderer = FrameRenderer.Create();
         var tracker = new PITrackerCore.Tracker(camera);
         var settings = new TrackerSettings();
         
@@ -198,7 +198,7 @@ public static class VisionPipeline
         ICameraSource camera, 
         PITrackerCore.Tracker tracker, 
         TrackerSettings settings, 
-        FramebufferRenderer renderer, 
+        FrameRenderer renderer, 
         InputState input, 
         CancellationToken ct)
     {

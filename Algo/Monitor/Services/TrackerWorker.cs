@@ -18,7 +18,7 @@ namespace Monitor.Services
 
         private ICameraSource? _camera;
         private PiTrackerAlgo? _tracker;
-        private FramebufferRenderer? _framebufferRenderer;
+        private LinuxFrameRenderer? _framebufferRenderer;
         private OperationMode _currentMode;
         private bool _isPlaying = true;
 
@@ -106,7 +106,7 @@ namespace Monitor.Services
 
             try
             {
-                _framebufferRenderer = new FramebufferRenderer();
+                _framebufferRenderer = new LinuxFrameRenderer();
                 _logger.LogInformation("FramebufferRenderer initialized.");
             }
             catch (Exception ex)
