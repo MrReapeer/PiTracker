@@ -1,73 +1,98 @@
 using System;
-using System.IO;
 using System.Threading;
 using System.Runtime.InteropServices;
 using OpenCvSharp;
+using System.Diagnostics; // Add this at the top
 
 public class FramebufferRenderer : IDisposable
 {
-    private readonly FileStream _fs;
+    // --- Native Linux Interop for Memory Mapping ---
+    [DllImport("libc", SetLastError = true)]
+    private static extern int open(string pathname, int flags);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern IntPtr mmap(IntPtr addr, long length, int prot, int flags, int fd, long offset);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int munmap(IntPtr addr, long length);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int close(int fd);
+
+    private const int O_RDWR = 2;
+    private const int PROT_READ = 1;
+    private const int PROT_WRITE = 2;
+    private const int MAP_SHARED = 1;
+
+    // --- State Variables ---
     private readonly Thread _renderThread;
     private bool _isRunning = true;
+    private readonly int _fd;
+    private readonly IntPtr _fbPtr;
+    private readonly long _fbSize;
 
     // Concurrency control
     private Mat _pendingFrame = null;
     private readonly object _frameLock = new object();
 
-    // Pre-allocated buffers to prevent Garbage Collection stutters
+    // Pre-allocated OpenCV buffers
     private readonly Mat _resizedFrame = new Mat();
     private readonly Mat _fbFrame = new Mat();
-    private readonly byte[] _frameBytes;
-    
     private readonly int _targetWidth = 720;
     private readonly int _targetHeight = 480;
 
     public FramebufferRenderer(string devicePath = "/dev/fb0")
     {
-        // 1. Open the file stream once
-        _fs = new FileStream(devicePath, FileMode.Open, FileAccess.Write);
-        
-        // 2. Pre-allocate the exact byte array size (720 x 480 x 2 bytes for 16-bit color)
-        _frameBytes = new byte[_targetWidth * _targetHeight * 2]; 
+        // 1. Calculate exact memory size (720x480 @ 16-bit color = 2 bytes per pixel)
+        _fbSize = _targetWidth * _targetHeight * 2;
 
-        // 3. Start the dedicated background render thread
+        // 2. Open the framebuffer file at the native OS level
+        _fd = open(devicePath, O_RDWR);
+        if (_fd < 0) throw new Exception($"Failed to open {devicePath}. Run as root or add user to 'video' group.");
+
+        // 3. Map the hardware video memory directly into our C# app!
+        _fbPtr = mmap(IntPtr.Zero, _fbSize, PROT_READ | PROT_WRITE, MAP_SHARED, _fd, 0);
+        if (_fbPtr == new IntPtr(-1)) throw new Exception("Failed to mmap framebuffer.");
+
+        // 4. Start the dedicated background render thread
         _renderThread = new Thread(RenderLoop)
         {
             IsBackground = true,
-            Name = "AnalogVTX_Renderer"
+            Name = "AnalogVTX_FastRenderer"
         };
         _renderThread.Start();
     }
 
-    // Call this from your TrackerWorker! It returns almost instantly.
     public void Display(Mat newFrame)
     {
         if (newFrame == null || newFrame.Empty()) return;
 
         lock (_frameLock)
         {
-            // Dispose of any unprocessed frame sitting in the queue
             _pendingFrame?.Dispose(); 
-            
-            // Clone the incoming frame so the Tracker thread can keep working 
-            // on the original Mat without crashing the renderer
             _pendingFrame = newFrame.Clone(); 
         }
     }
-
-    private void RenderLoop()
+    // Inside your FramebufferRenderer class:
+    private unsafe void RenderLoop()
     {
+        // The exact milliseconds for one 60Hz NTSC frame
+        double targetFrameTimeMs = 1000.0 / 60.0; 
+        
+        Stopwatch sw = new Stopwatch();
+
         while (_isRunning)
         {
+            sw.Restart(); // Start timing the frame
+
             Mat frameToRender = null;
 
-            // Safely grab the latest frame from the Tracker
             lock (_frameLock)
             {
                 if (_pendingFrame != null)
                 {
                     frameToRender = _pendingFrame;
-                    _pendingFrame = null; // Empty the queue
+                    _pendingFrame = null;
                 }
             }
 
@@ -75,39 +100,55 @@ public class FramebufferRenderer : IDisposable
             {
                 try
                 {
-                    // 1. Resize to fit the analog VTX resolution
+                    // 1. Process image
                     Cv2.Resize(frameToRender, _resizedFrame, new Size(_targetWidth, _targetHeight));
-                    
-                    // 2. Convert to the 16-bit hardware color depth
                     Cv2.CvtColor(_resizedFrame, _fbFrame, ColorConversionCodes.BGR2BGR565);
 
-                    // 3. Extract bytes to our pre-allocated array
-                    Marshal.Copy(_fbFrame.Data, _frameBytes, 0, _frameBytes.Length);
-
-                    // 4. Blast to hardware (rewinding the pointer first!)
-                    _fs.Seek(0, SeekOrigin.Begin);
-                    _fs.Write(_frameBytes, 0, _frameBytes.Length);
+                    // 2. Blast memory
+                    Buffer.MemoryCopy(
+                        _fbFrame.DataPointer, 
+                        _fbPtr.ToPointer(), 
+                        _fbSize, 
+                        _fbSize
+                    );
                 }
                 finally
                 {
-                    // Always clean up the temporary clone to prevent C++ memory leaks
                     frameToRender.Dispose();
                 }
             }
-            else
+
+            // 3. THE PHASE LOCK: Wait exactly until the 16.66ms mark
+            sw.Stop();
+            double elapsedMs = sw.Elapsed.TotalMilliseconds;
+            
+            if (elapsedMs < targetFrameTimeMs)
             {
-                // If the Tracker hasn't produced a new frame yet, sleep for 5ms 
-                // so we don't accidentally max out a CPU core doing nothing.
-                Thread.Sleep(5);
+                // Calculate exactly how much time is left in our 16.66ms window
+                double timeToWait = targetFrameTimeMs - elapsedMs;
+                
+                // Thread.Sleep only accepts whole integers, so we cast it.
+                // For hyper-precision, you could use a spin-wait here, but Sleep is usually fine.
+                Thread.Sleep((int)timeToWait); 
             }
+            
+            // --- THE TEAR DIAL ---
+            // If the tear is frozen right in the middle of your screen, 
+            // uncomment the line below and adjust the number (1 to 16) 
+            // to manually push the tear down until it falls off the bottom edge!
+            // Thread.Sleep(5); 
         }
     }
 
     public void Dispose()
     {
         _isRunning = false;
-        _renderThread.Join(); // Wait for thread to finish
-        _fs?.Dispose();
+        _renderThread?.Join();
+        
+        // Clean up the native memory map
+        if (_fbPtr != IntPtr.Zero && _fbPtr != new IntPtr(-1)) munmap(_fbPtr, _fbSize);
+        if (_fd >= 0) close(_fd);
+
         _resizedFrame?.Dispose();
         _fbFrame?.Dispose();
         _pendingFrame?.Dispose();
