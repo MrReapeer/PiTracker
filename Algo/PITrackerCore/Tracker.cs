@@ -13,30 +13,31 @@ namespace PITrackerCore
     public class Tracker
     {
         public ICameraSource Camera { get; private set; }
-        public Tracker(ICameraSource camera) { Camera = camera; }
+        public static Tracker Create()
+        {
+            var c = new LiveCameraSource();
+            var t = new Tracker(c);
+            return t;
+        }
+        private Tracker(ICameraSource camera) { Camera = camera; }
         public delegate void DebugFrameCallback(DebugFrame frame);
         public delegate void TrackOutputCallback(TrackData output);
         public event DebugFrameCallback OnDebugFrame;
         public event DebugFrameCallback OnMicroDebug;
         public event TrackOutputCallback OnTrackOutput;
-        bool isRunning = false;
 
         public LockParameters currentTarget { get; private set; }
-        public TrackerSettings currentSettings { get; set; } = new TrackerSettings();
+        private OpenCvSharp.Size _lastFrameSize;
 
-        public bool IsPlayingTracker { get; set; } = false;
-        public bool StepNextFrameTracker { get; set; } = false;
-        public bool ReprocessCurrentFrame { get; set; } = false;
-        private Mat _lastFrame = null;
-
-        public void SetTarget(LockParameters target)
+        void SetTarget(LockParameters target)
         {
             currentTarget = target;
-            ReprocessCurrentFrame = true;
         }
         // Add this inside PITrackerCore.Tracker
-        public void SetTarget(double nx, double ny, int frameWidth, int frameHeight)
+        public void SetTarget(double nx, double ny)
         {
+            var frameWidth = _lastFrameSize.Width;
+            var frameHeight = _lastFrameSize.Height;
             // Convert normalized [-1..1] to absolute pixels
             var px = ((nx + 1.0) / 2.0) * frameWidth;
             var py = ((ny + 1.0) / 2.0) * frameHeight;
@@ -62,11 +63,14 @@ namespace PITrackerCore
                 DebugInfo = "Manual Keyboard Command"
             };
 
+            lockingFree.WaitOne();
             SetTarget(manualSeed); // Call your existing method
         }
         public void ClearTarget()
         {
+            lockingFree.WaitOne();
             currentTarget = null;
+            lastProcessed = null;
         }
 
         public void InstantDebug(Mat frame, string label = "Debug")
@@ -74,162 +78,61 @@ namespace PITrackerCore
             OnMicroDebug?.Invoke(new DebugFrame { Frame = frame.Clone(), Label = label });
         }
 
-        private Mat DrawDebugFrame(Mat frame, LockParameters prev, LockParameters current)
-        {
-            // Helper to get center of a rect
-            Point GetCenter(LockParameters p) => new Point((int)(p.X + p.W / 2), (int)(p.Y + p.H / 2));
 
-            // DRAW PREVIOUS STATE (Gray)
-            if (prev != null && prev.IsLocked)
-            {
-                // Last Object
-                //Cv2.Rectangle(frame, new Rect((int)prev.X, (int)prev.Y, (int)prev.W, (int)prev.H), Scalar.Gray, 1);
-                
-                // Last ROI
-                if (prev.LastRoi.Width > 0)
-                    Cv2.Rectangle(frame, prev.LastRoi, Scalar.Gray, 1);
-
-                // Last Velocity Vector
-                //var center = GetCenter(prev);
-                //Cv2.Line(frame, center, new Point(center.X + (int)prev.dX, center.Y + (int)prev.dY), Scalar.Gray, 1);
-            }
-
-            // DRAW CURRENT STATE
-            if (current != null && current.IsLocked)
-            {
-                // Current ROI (Green)
-                if (current.LastRoi.Width > 0)
-                    Cv2.Rectangle(frame, current.LastRoi, Scalar.Green, 1);
-
-                // Current Object (Blue, thick)
-                Cv2.Rectangle(frame, new Rect((int)current.X, (int)current.Y, (int)current.W, (int)current.H), Scalar.Blue, 2);
-                
-                // Current Velocity Vector (Green)
-                var center = GetCenter(current);
-                Cv2.Line(frame, center, new Point(center.X - (int)current.dX, center.Y - (int)current.dY), Scalar.Green, 1);
-
-                Cv2.PutText(frame, $"Conf: {current.Confidence:F2}", new OpenCvSharp.Point((int)current.X, (int)current.Y - 5), HersheyFonts.HersheySimplex, 0.5, Scalar.Green, 1);
-            }
-            return frame;
-        }
-
+        CancellationTokenSource loopsCTS;
         public void BeginAsync()
         {
-            if (isRunning)
-                return;
-            isRunning = true;
-            new System.Threading.Thread(async () =>
+            Camera.Start();
+            loopsCTS = new CancellationTokenSource();
+            new Thread(async () =>
             {
-                while (isRunning)
+                var camera = this.Camera;
+                var ct = loopsCTS.Token;
+                var settings = new TrackerSettings();
+                while (!ct.IsCancellationRequested)
                 {
-                    if (!IsPlayingTracker && !StepNextFrameTracker && !ReprocessCurrentFrame)
+                    if (!camera.IsRunning)
                     {
-                        Thread.Sleep(10); continue;
-                    }
-                    StepNextFrameTracker = false;
-                    
-                    Mat frame = null;
-                    if (ReprocessCurrentFrame)
-                    {
-                        ReprocessCurrentFrame = false;
-                        if (_lastFrame != null && !_lastFrame.IsDisposed)
-                        {
-                            frame = _lastFrame.Clone();
-                        }
-                    }
-                    else
-                    {
-                        frame = await Camera.GetNextFrame();
-                        if (frame != null)
-                        {
-                            _lastFrame?.Dispose();
-                            _lastFrame = frame.Clone();
-                        }
+                        await Task.Delay(100, ct);
+                        continue;
                     }
 
-                    if (frame != null)
+                    using Mat frame = await camera.GetNextFrame();
+                    _lastFrameSize = new OpenCvSharp.Size(frame.Width, frame.Height);
+                    if (frame == null || frame.Empty())
                     {
-                        Mat debugFrame = frame.Clone();
-                        LockParameters prevTarget = currentTarget;
+                        await Task.Delay(5, ct);
+                        continue;
+                    }
 
-                        if (currentTarget != null)
-                        {
-                            currentTarget = TryLock(currentSettings, frame);
-                            if (currentTarget != null && currentTarget.IsLocked)
-                            {
-                                debugFrame = DrawDebugFrame(debugFrame, prevTarget, currentTarget);
-                            }   
-                            if (!currentTarget.IsLocked)
-                            {
-                                currentTarget = null;
-                            }
-                        }
 
-                        OnDebugFrame?.Invoke(new DebugFrame { Frame = debugFrame, Label = currentTarget != null ? "Tracking" : "Idle" });
+                    // 2. Execute Tracking Algorithm
+                    var trackState = TryLock(settings, frame);
+
+                    OnTrackOutput?.Invoke(new TrackData(trackState, frame));
+                    if (!frame.IsDisposed)
                         frame.Dispose();
-                    }
                 }
-            }).Start();
+            }).Start(); ;
+
         }
         public void RequestStop()
         {
-            isRunning = true;
+            Camera.Stop();
+            loopsCTS.Cancel();
         }
         LockParameters lastProcessed = null;
-        static void FDisaplay()
-        {
-            Console.WriteLine("Starting Live Framebuffer Feed...");
-
-            // 1. Open the file ONCE outside the loop to save CPU
-            using FileStream fs = new FileStream("/dev/fb0", FileMode.Open, FileAccess.Write);
-
-            int frameCount = 0;
-            int boxX = 100;
-            int boxDirection = 15;
-
-            // Run continuously until you stop the app
-            while (true)
-            {
-                // Create the base frame
-                using Mat frame = new Mat(480, 720, MatType.CV_8UC3, new Scalar(40, 40, 40));
-
-                // Draw a live frame counter
-                Cv2.PutText(frame, $"LIVE STREAM: {frameCount}", new Point(50, 80), 
-                            HersheyFonts.HersheySimplex, 1.5, new Scalar(255, 255, 255), 3);
-
-                // Draw a bouncing red box to prove it's not frozen
-                Cv2.Rectangle(frame, new Rect(boxX, 150, 150, 150), new Scalar(0, 0, 255), thickness: -1);
-                
-                // Update box position
-                boxX += boxDirection;
-                if (boxX > 500 || boxX < 50) boxDirection = -boxDirection;
-
-                // 2. CRITICAL FIX: Convert to 16-bit BGR565!
-                // This stops the massive 200% zoom and fixes the colors.
-                using Mat fbFrame = new Mat();
-                Cv2.CvtColor(frame, fbFrame, ColorConversionCodes.BGR2BGR565);
-
-                // Extract bytes
-                int byteSize = (int)(fbFrame.Total() * fbFrame.ElemSize());
-                byte[] frameBytes = new byte[byteSize];
-                Marshal.Copy(fbFrame.Data, frameBytes, 0, byteSize);
-
-                // 3. CRITICAL FIX: Rewind the pointer to the top-left pixel!
-                // This prevents the "No space left on device" crash.
-                fs.Seek(0, SeekOrigin.Begin);
-                
-                // Blast to the screen
-                fs.Write(frameBytes, 0, frameBytes.Length);
-
-                frameCount++;
-                
-                // Limit to roughly 30 FPS so we don't melt the CPU
-                Thread.Sleep(33); 
-            }
-        }
+        ManualResetEvent lockingFree = new ManualResetEvent(false);
         public LockParameters TryLock(TrackerSettings cfg, Mat frame)
         {
-            if (frame == null || frame.Empty()) 
+            lockingFree.Reset();
+            var l = _TryLock_(cfg, frame);
+            lockingFree.Set();
+            return l;
+        }
+        LockParameters _TryLock_(TrackerSettings cfg, Mat frame)
+        {
+            if (frame == null || frame.Empty())
             {
                 lastProcessed = null;
                 return null;
@@ -243,25 +146,25 @@ namespace PITrackerCore
                 if (lastProcessed == null) // first frame
                 {
                     // no target, no history.
-                lastProcessed = null;
-                return null;
+                    lastProcessed = null;
+                    return null;
                 }
-                // find the last locked state in the history chain
-            
+            // find the last locked state in the history chain
+
             var train = new LockTrain(LockParameters.GetLastLocked(LockParameters.GetLastLocked(lastProcessed)), 5);
             var last = train.GetSmoothened();
             if (lastProcessed.IsManual)
-            last = lastProcessed;
+                last = lastProcessed;
 
             if (last == null) // nevel locked
             {
                 lastProcessed = null;
                 return null;
             }
-            
+
             Stopwatch sw = Stopwatch.StartNew();
             StringBuilder sb = new StringBuilder();
-            
+
             // --- STEP 1: PREDICT & IDENTIFY ROI ---
             long startT = sw.ElapsedTicks;
             // Estimate 1: Use exact ROI offset of previous
@@ -275,7 +178,7 @@ namespace PITrackerCore
             // Average the two roi offsets
             int newOffsetX = (est1OffsetX + est2OffsetX) / 2;
             int newOffsetY = (est1OffsetY + est2OffsetY) / 2;
-            
+
             // Clamp to min/max allowed
             newOffsetX = Math.Clamp(newOffsetX, cfg.MinROI, cfg.MaxROI);
             newOffsetY = Math.Clamp(newOffsetY, cfg.MinROI, cfg.MaxROI);
@@ -330,7 +233,7 @@ namespace PITrackerCore
             // --- STEP 4: KINEMATICS & CONFIDENCE ---
             double curX = rx + medianX - (dimensions.Width / 2.0);
             double curY = ry + medianY - (dimensions.Height / 2.0);
-            
+
             double curDX = last.IsManual ? 0 : curX - last.X;
             double curDY = last.IsManual ? 0 : curY - last.Y;
             double curDW = last.IsManual ? 0 : dimensions.Width - last.W;
@@ -344,9 +247,9 @@ namespace PITrackerCore
             double roiConf = Math.Min(roiConfX, roiConfY);
             double lostConf = LockParameters.GetLockedUnloackedRatio(lastProcessed, 30);
             double currentFrameConf = (velConf + sizeConf + roiConf + lostConf) / 4.0;
-            
+
             double finalConf = last.IsManual ? currentFrameConf : (last.Confidence * cfg.ConfidenceWeight) + (currentFrameConf * (1 - cfg.ConfidenceWeight));
-            
+
             // --- STEP 5: INTEGRATE PREDICTION ---
             // integration of prediction with measurements
             double smoothedX = last.IsManual ? curX : (curX * (1 - cfg.VelocityWeight)) + ((last.X + last.dX) * cfg.VelocityWeight);
@@ -617,8 +520,13 @@ namespace PITrackerCore
         }
         public class TrackData
         {
-            public Point2f Position { get; set; }
-            public float Confidence { get; set; }
+            public TrackData(LockParameters lock_, Mat mat)
+            {
+                this.Lock = lock_;
+                this.Frame = mat;
+            }
+            public LockParameters Lock { get; private set; }
+            public Mat Frame { get; private set; }
         }
     }
     public class TrackerSettings
