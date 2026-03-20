@@ -13,6 +13,10 @@ namespace TrackerConsole
 
         public float CursorX { get; private set; } = 0.0F; // Normalized X [-1.0 to 1.0]
         public float CursorY { get; private set; } = 0.0F; // Normalized Y [-1.0 to 1.0]
+        void KeyUpdate(string info)
+        {
+            Console.Write("\r> " + info.PadRight(Console.WindowWidth - 3, ' '), "\r");
+        }
 
         void MoveCursor(double deltaX, double deltaY)
         {
@@ -24,6 +28,7 @@ namespace TrackerConsole
         {
             CursorX = 0; CursorY = 0;
             OnTargetChange?.Invoke(CursorX, CursorY);
+            KeyUpdate("Reset");
         }
 
         public void RunBlocking(Tracker tracker)
@@ -31,6 +36,9 @@ namespace TrackerConsole
             this.Tracker = tracker;
             const double stepSize = 0.05; // 5% of the screen per keystroke
 
+            Console.WriteLine();
+            Console.WriteLine("Use cursor keys to control location, C to clear, Esc to exit.");
+            Console.Write(">");
             while (true)
             {
                 // Intercept=true hides the key from being printed to the console
@@ -40,13 +48,13 @@ namespace TrackerConsole
 
                     switch (key)
                     {
-                        case ConsoleKey.UpArrow: MoveCursor(0, -stepSize); break;
-                        case ConsoleKey.DownArrow: MoveCursor(0, stepSize); break;
-                        case ConsoleKey.LeftArrow: MoveCursor(-stepSize, 0); break;
-                        case ConsoleKey.RightArrow: MoveCursor(stepSize, 0); break;
-                        case ConsoleKey.Spacebar: tracker.SetTarget(CursorX, CursorY); break;
+                        case ConsoleKey.UpArrow: MoveCursor(0, -stepSize); KeyUpdate("Y--"); break;
+                        case ConsoleKey.DownArrow: MoveCursor(0, stepSize); KeyUpdate("Y++"); break;
+                        case ConsoleKey.LeftArrow: MoveCursor(-stepSize, 0); KeyUpdate("X--"); break;
+                        case ConsoleKey.RightArrow: MoveCursor(stepSize, 0); KeyUpdate("X++"); break;
+                        case ConsoleKey.Spacebar: tracker.SetTarget(CursorX, CursorY); KeyUpdate("Lock!"); break;
                         case ConsoleKey.C: ResetCursor(); tracker.ClearTarget(); break;
-                        case ConsoleKey.Escape: break;
+                        case ConsoleKey.Escape: return;
                     }
                 }
                 else

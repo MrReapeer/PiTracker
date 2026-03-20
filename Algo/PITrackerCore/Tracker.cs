@@ -1,12 +1,14 @@
 using OpenCvSharp;
+using OpenCvSharp.XPhoto;
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
-using System.Text;
-using Point = OpenCvSharp.Point;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Xml.Linq;
+using Point = OpenCvSharp.Point;
 
 namespace PITrackerCore
 {
@@ -73,11 +75,6 @@ namespace PITrackerCore
             lastProcessed = null;
         }
 
-        public void InstantDebug(Mat frame, string label = "Debug")
-        {
-            OnMicroDebug?.Invoke(new DebugFrame { Frame = frame.Clone(), Label = label });
-        }
-
 
         CancellationTokenSource loopsCTS;
         public void BeginAsync()
@@ -121,6 +118,74 @@ namespace PITrackerCore
             Camera.Stop();
             loopsCTS.Cancel();
         }
+        public static Mat VisualizeHistogramWithThresholds(Mat gray, int safeLow, int safeHigh, int centerEst, TrackerSettings cfg)
+        {
+            // 1. Calculate the raw histogram using your exact method
+            using Mat hist = new Mat();
+            Cv2.CalcHist(new Mat[] { gray }, new int[] { 0 }, null, hist, 1, new int[] { 256 }, new Rangef[] { new Rangef(0, 256) });
+
+            float[] h = new float[256];
+            for (int i = 0; i < 256; i++) h[i] = hist.At<float>(i);
+
+            // 2. Apply YOUR user-controlled smoothing
+            float[] smoothH = SmoothHistogram(h, cfg.HistogramSmoothingWindow);
+
+            // 3. Find the maximum value in the smoothed array so we can scale it to the window
+            float maxVal = 0;
+            for (int i = 0; i < 256; i++)
+            {
+                if (smoothH[i] > maxVal) maxVal = smoothH[i];
+            }
+
+            // Prevent division by zero if the ROI is completely black
+            if (maxVal == 0) maxVal = 1;
+
+            // 4. Setup the visualization image dimensions
+            int histW = 512;
+            int histH = 300;
+            int binW = histW / 256;
+
+            // Create a dark gray background
+            Mat histImage = new Mat(histH, histW, MatType.CV_8UC3, new Scalar(30, 30, 30));
+
+            // 5. Highlight the Active Band (The pixels that will turn White)
+            int xLow = safeLow * binW;
+            int xHigh = safeHigh * binW;
+            int xCenterEst = centerEst * binW;
+
+            // Draw a dark blue rectangle behind the kept region
+            Cv2.Rectangle(histImage, new Point(xLow, 0), new Point(xHigh, histH), new Scalar(70, 50, 50), -1);
+
+            // 6. Draw the SMOOTHED histogram curve
+            for (int i = 1; i < 256; i++)
+            {
+                // Calculate Y coordinates by normalizing against maxVal. 
+                // (histH - 20) leaves a 20-pixel padding at the top of the window.
+                int y1 = histH - (int)Math.Round((smoothH[i - 1] / maxVal) * (histH - 20));
+                int y2 = histH - (int)Math.Round((smoothH[i] / maxVal) * (histH - 20));
+
+                Point p1 = new Point(binW * (i - 1), y1);
+                Point p2 = new Point(binW * i, y2);
+
+                // Draw the line in white
+                Cv2.Line(histImage, p1, p2, new Scalar(255, 255, 255), 2, LineTypes.AntiAlias);
+            }
+
+            // 7. Draw the Threshold Lines
+            // Low Threshold (Green)
+            Cv2.Line(histImage, new Point(xLow, 0), new Point(xLow, histH), new Scalar(0, 255, 0), 2);
+            Cv2.PutText(histImage, $"Low: {safeLow}", new Point(Math.Max(0, xLow - 60), 20), HersheyFonts.HersheySimplex, 0.5, new Scalar(0, 255, 0), 1);
+
+            // High Threshold (Red)
+            Cv2.Line(histImage, new Point(xHigh, 0), new Point(xHigh, histH), new Scalar(0, 0, 255), 2);
+            Cv2.PutText(histImage, $"High: {safeHigh}", new Point(Math.Min(histW - 70, xHigh + 5), 40), HersheyFonts.HersheySimplex, 0.5, new Scalar(0, 0, 255), 1);
+
+            // Mid Estimate (blue)
+            Cv2.Line(histImage, new Point(xCenterEst, 0), new Point(xCenterEst, histH), new Scalar(255, 0, 0), 2);
+            Cv2.PutText(histImage, $"Center: {centerEst}", new Point(Math.Min(histW - 70, xCenterEst + 5), 40), HersheyFonts.HersheySimplex, 0.5, new Scalar(255, 0, 0), 1);
+
+            return histImage;
+        }
         LockParameters lastProcessed = null;
         ManualResetEvent lockingFree = new ManualResetEvent(false);
         public LockParameters TryLock(TrackerSettings cfg, Mat frame)
@@ -129,6 +194,60 @@ namespace PITrackerCore
             var l = _TryLock_(cfg, frame);
             lockingFree.Set();
             return l;
+        }
+        void UpdateTargetThresholdEstimate(LockParameters currentTarget, Mat frame, TrackerSettings cfg)
+        {
+            //// 1. Get the center coordinates
+            //int cx = (int)(currentTarget.X + currentTarget.W / 2);
+            //int cy = (int)(currentTarget.Y + currentTarget.H / 2);
+
+            //// 2. Define a 4x4 bounding box centered around cx, cy (offset by -2)
+            //Rect sampleRect = new Rect(cx - 2, cy - 2, 4, 4);
+
+            //// 3. Intersect with frame bounds to prevent OutOfBounds crashes if clicked near the edge
+            //Rect frameBounds = new Rect(0, 0, frame.Width, frame.Height);
+            //Rect safeRect = sampleRect.Intersect(frameBounds);
+
+            //byte grayValue = 128; // Fallback value just in case the rect is totally invalid
+
+            //if (safeRect.Width > 0 && safeRect.Height > 0)
+            //{
+            //    // 4. Extract the tiny ROI
+            //    using Mat roi = new Mat(frame, safeRect);
+
+            //    // 5. Calculate the average of all pixels in the ROI instantly
+            //    Scalar meanColor = Cv2.Mean(roi);
+
+            //    // Scalar stores values as doubles. Val0 = B, Val1 = G, Val2 = R
+            //    double b = meanColor.Val0;
+            //    double g = meanColor.Val1;
+            //    double r = meanColor.Val2;
+
+            //    // Standard CCIR 601 luminance formula
+            //    grayValue = (byte)(0.299 * r + 0.587 * g + 0.114 * b);
+            //}
+
+            //currentTarget.BinaryThresholdLow = grayValue;
+            //currentTarget.BinaryThresholdHigh = grayValue;
+
+            // Construct new ROI rect centered on last known position
+            int startX = (int)(currentTarget.X);
+            int startY = (int)(currentTarget.Y);
+            int endX = (int)(currentTarget.X + currentTarget.W);
+            int endY = (int)(currentTarget.Y + currentTarget.H);
+            int rx = Math.Max(0, startX);
+            int ry = Math.Max(0, startY);
+            int rw = Math.Min(frame.Width, endX) - rx;
+            int rh = Math.Min(frame.Height, endY) - ry;
+            Rect roiRect = new Rect(rx, ry, rw, rh);
+            using Mat roiGray = new Mat();
+            using Mat roiView = frame[roiRect];
+            Cv2.CvtColor(roiView, roiGray, ColorConversionCodes.BGR2GRAY);
+            Cv2.ImShow("temp", roiGray);
+            Cv2.WaitKey(1);
+            (currentTarget.BinaryThresholdLow, currentTarget.BinaryThresholdHigh, _) = GetHistogramThresholdRange(roiGray, cfg, 0);
+
+            lastProcessed = currentTarget; // remove previous history
         }
         LockParameters _TryLock_(TrackerSettings cfg, Mat frame)
         {
@@ -139,7 +258,7 @@ namespace PITrackerCore
             }
             if (currentTarget != null)  // new manual target
             {
-                lastProcessed = currentTarget; // remove previous history
+                UpdateTargetThresholdEstimate(currentTarget, frame, cfg);
                 currentTarget = null; // Clear current target to force using the new seed
             }
             else // continue a track
@@ -203,12 +322,25 @@ namespace PITrackerCore
 
             // --- STEP 2: THRESHOLDING ---
             // Get fresh threshold from Histogram
-            int frameThreshold = GetHistogramThreshold(roiGray, cfg);
-            int activeThreshold = last.IsManual ? frameThreshold : (int)((last.BinaryThreshold * cfg.ThresholdWeight) + (frameThreshold * (1 - cfg.ThresholdWeight)));
+            var centerEst = (last.BinaryThresholdLow + last.BinaryThresholdHigh) / 2;
+            (int frameThresholdLow, int frameThresholdHigh, var type) = GetHistogramThresholdRange(roiGray, cfg, (last.BinaryThresholdLow + last.BinaryThresholdHigh) / 2);
+            int activeThresholdHigh = last.IsManual ? frameThresholdHigh : (int)((last.BinaryThresholdHigh * cfg.ThresholdWeight) + (frameThresholdHigh * (1 - cfg.ThresholdWeight)));
+            int activeThresholdLow = last.IsManual ? frameThresholdLow : (int)((last.BinaryThresholdLow * cfg.ThresholdWeight) + (frameThresholdLow * (1 - cfg.ThresholdWeight)));
+            // Safety check: InRange will fail if Low > High. Clamp them just in case your weights cause a flip.
+            int safeLow = Math.Min(activeThresholdLow, activeThresholdHigh);
+            int safeHigh = Math.Max(activeThresholdLow, activeThresholdHigh);
 
             using Mat binary = new Mat();
-            Cv2.Threshold(roiGray, binary, activeThreshold, 255, ThresholdTypes.BinaryInv);
-            InstantDebug(binary, "BinaryROI");
+
+            //Cv2.InRange(roiGray, new Scalar(safeLow), new Scalar(safeHigh), binary);
+            //Cv2.ImShow("roi", roiView);
+            //Cv2.ImShow("binary", binary);
+            //var histVis = VisualizeHistogramWithThresholds(roiGray, safeLow, safeHigh, centerEst, cfg);
+            //Cv2.ImShow("hist", histVis);
+            //Cv2.MoveWindow("roi", 10, 10);
+            //Cv2.MoveWindow("binary", 140, 10);
+            //Cv2.MoveWindow("hist", 10, 140);
+            //Cv2.WaitKey(1);
             sb.Append($"Thresh:{(sw.ElapsedTicks - startT) * 1000000 / Stopwatch.Frequency}us ");
             startT = sw.ElapsedTicks;
 
@@ -270,7 +402,8 @@ namespace PITrackerCore
                 dH = curDH,
                 RoiOffsetX = newOffsetX,
                 RoiOffsetY = newOffsetY,
-                BinaryThreshold = activeThreshold,
+                BinaryThresholdHigh = activeThresholdHigh,
+                BinaryThresholdLow = activeThresholdLow,
                 Confidence = finalConf,
                 LockTime = DateTime.Now,
                 Seed = last,
@@ -310,197 +443,195 @@ namespace PITrackerCore
             // colDensity.Average() = The average number of white pixels found per column (Object Height)
             return (rowDensity.Sum() / rowDensity.Count(r => r > 0), colDensity.Sum() / colDensity.Count(c => c > 0));
         }
-        public Mat VisualizeHistogram(float[] histData, int thresholdValue)
+        
+        public enum ThresholdDetectionType
         {
-            int width = 256;
-            int height = 150;
-            Mat vis = new Mat(height, width, MatType.CV_8UC3, Scalar.Black);
-
-            // 1. Find the max value to normalize the height
-            float maxVal = histData.Max();
-            if (maxVal == 0) return vis; // Avoid division by zero
-
-            // 2. Draw the histogram bars
-            for (int i = 0; i < width; i++)
-            {
-                // Calculate bar height relative to the image height
-                int barHeight = (int)((histData[i] / maxVal) * height);
-
-                // Draw a vertical line for each bin
-                // Point(x, y): (0,0) is top-left in OpenCV
-                Cv2.Line(vis,
-                    new Point(i, height),
-                    new Point(i, height - barHeight),
-                    Scalar.White);
-            }
-
-            // 3. Draw the Threshold marker (Red line)
-            // This helps you see if the threshold is in the "valley" or on a "peak"
-            Cv2.Line(vis,
-                new Point(thresholdValue, 0),
-                new Point(thresholdValue, height),
-                new Scalar(0, 0, 255), // Red in BGR
-                1);
-
-            return vis;
+            TargetedHump,       // Found and bounded the local hump around the estimate
+            SmallestPeak,    // Failed targeted; found global background and secondary peak
+            NoRegions,     // No object peak; background is dark, capturing bright tail
+            SingleBackground    // No object peak; background is bright, capturing dark tail
         }
-        private int GetHistogramThreshold_Traveler(Mat gray, TrackerSettings cfg)
+
+        public static (int Low, int High, ThresholdDetectionType DetectionType) GetHistogramThresholdRange(Mat gray, TrackerSettings cfg, int targetEstimate = -1)
         {
             using Mat hist = new Mat();
             Cv2.CalcHist(new Mat[] { gray }, new int[] { 0 }, null, hist, 1, new int[] { 256 }, new Rangef[] { new Rangef(0, 256) });
 
             float[] h = new float[256];
-            for (int i = 0; i < 256; i++) h[i] = hist.At<float>(i);
-
-            // Smooth slightly to avoid getting stuck on tiny "rocks" while climbing down
-            float[] smoothH = SmoothHistogram(h, cfg.HistogramSmoothingWindow);
-
-            // 1. Find the Highest Peak (The Mountain Summit)
-            int summitIdx = 0;
-            float summitHeight = 0;
             for (int i = 0; i < 256; i++)
-            {
-                if (smoothH[i] > summitHeight)
-                {
-                    summitHeight = smoothH[i];
-                    summitIdx = i;
-                }
-            }
+                h[i] = hist.At<float>(i);
 
-            // 2. Start Moving Backward (Down the Mountain)
-            // We assume a light background, so we move from summitIdx towards 0.
-            int currentPos = summitIdx;
-            bool hasClimbedDown = false;
-            float climbDownThreshold = summitHeight * 0.50f; // Must drop below 50% height
-
-            int threshold = 0;
-
-            for (int i = summitIdx; i >= 0; i--)
-            {
-                // Phase A: Climbing down the steep slope
-                if (!hasClimbedDown)
-                {
-                    if (smoothH[i] < climbDownThreshold)
-                    {
-                        hasClimbedDown = true;
-                    }
-                    continue;
-                }
-
-                // Phase B: Looking for the Local Minima (The Valley)
-                // We look for a "rise" in the next step (i-1) compared to current step (i)
-                if (i > 0 && smoothH[i - 1] > smoothH[i])
-                {
-                    // We found the bottom! The next pixel is higher, meaning we hit the next hump.
-                    threshold = i;
-                    break;
-                }
-
-                // Phase C: Failsafe - if we reach the absolute bottom (0) without a rise
-                if (i == 0)
-                {
-                    threshold = 0;
-                }
-            }
-
-            // If we never found a rise, use the last point we reached as the "foot"
-            if (threshold == 0 && hasClimbedDown)
-            {
-                // Find the absolute lowest point in the tail we traversed
-                float minTailVal = float.MaxValue;
-                for (int i = 0; i < summitIdx; i++)
-                {
-                    if (smoothH[i] < minTailVal)
-                    {
-                        minTailVal = smoothH[i];
-                        threshold = i;
-                    }
-                }
-            }
-
-            using var histVis = VisualizeHistogram(smoothH, threshold);
-            InstantDebug(histVis, "Traveler_Hist");
-
-            return threshold;
-        }
-        private int GetHistogramThreshold(Mat gray, TrackerSettings cfg)
-        {
-            using Mat hist = new Mat();
-            Cv2.CalcHist(new Mat[] { gray }, new int[] { 0 }, null, hist, 1, new int[] { 256 }, new Rangef[] { new Rangef(0, 256) });
-
-            float[] h = new float[256];
-            for (int i = 0; i < 256; i++) h[i] = hist.At<float>(i);
-            
             // Apply user-controlled smoothing
             float[] smoothH = SmoothHistogram(h, cfg.HistogramSmoothingWindow);
-            // 1. Find the Absolute Primary Peak (Background)
+
+            // 1. Find the Absolute Primary Peak (Background) - Needed for fallbacks
             int primaryPeak = 0;
             float maxVal = 0;
-            for (int i = 0; i < 256; i++) {
-                if (smoothH[i] > maxVal) {
+            for (int i = 0; i < 256; i++)
+            {
+                if (smoothH[i] > maxVal)
+                {
                     maxVal = smoothH[i];
                     primaryPeak = i;
                 }
             }
-
-            // 2. Try to find a distinct secondary peak (Object)
-            // We look for the highest point that is at least 40 units away from the primary peak
-            int secondaryPeak = -1;
-            float secondMaxVal = 0;
-            for (int i = 0; i < 256; i++) {
-                if (Math.Abs(i - primaryPeak) < 40) continue; 
-                if (smoothH[i] > secondMaxVal) {
-                    secondMaxVal = smoothH[i];
-                    secondaryPeak = i;
-                }
-            }
-
-            // 3. Logic Branch: Bimodal vs Unimodal
-            int threshold = 0;
-            if (secondaryPeak != -1 && secondMaxVal > (maxVal * 0.01)) // Found a real second hump
+            // PHASE 1: TARGETED HUMP SEARCH (Refined)
+            if (targetEstimate > 0 && targetEstimate < 255)
             {
-                // Find the lowest point between the two peaks
-                int start = Math.Min(primaryPeak, secondaryPeak);
-                int end = Math.Max(primaryPeak, secondaryPeak);
-                int valley = start;
-                float minVal = float.MaxValue;
+                // 1. "Climb" to the actual peak starting from the estimate
+                // Check left and right to see which way is "up"
+                int posOnPeak = 0; // 0 is top, -1 is left of peak, +1 is right of peak
+                if (targetEstimate == 0) // Already on fast left
+                    posOnPeak = -1;
+                else if (targetEstimate == 255)
+                    posOnPeak = 1;
+                else
+                {
+                    bool foundOnLeft = false;
+                    bool foundOnRight = false;
+                    float firstDiffValue = 0;
+                    for (int i = targetEstimate; i >= 0; i--)
+                    {
+                        if (Math.Abs(smoothH[i] - smoothH[targetEstimate]) > smoothH[targetEstimate] * cfg.MinPeakRatio)
+                        {
+                            firstDiffValue = smoothH[i];
+                            foundOnLeft = true;
+                            break;
+                        }
+                    }
+                    if (!foundOnLeft)
+                    {
+                        for (int i = targetEstimate; i < 255; i++)
+                        {
+                            if (Math.Abs(smoothH[i] - smoothH[targetEstimate]) > smoothH[targetEstimate] * cfg.MinPeakRatio)
+                            {
+                                firstDiffValue = smoothH[i];
+                                foundOnLeft = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (foundOnLeft || foundOnRight)
+                    {
+                        if (foundOnLeft)
+                        {
+                            if (firstDiffValue > smoothH[targetEstimate]) // 
+                            {
+                                posOnPeak = +1;
+                            }
+                            else
+                                posOnPeak = -1;
+                        }
+                        else
+                        {
+                            if (firstDiffValue > smoothH[targetEstimate]) // 
+                            {
+                                posOnPeak = -1;
+                            }
+                            else
+                                posOnPeak = +1;
+                        }
+                        int indexOfPeak = -1;
+                        int indexOfMaxValue = targetEstimate;
+                        // Move towards a peak now
+                        if (posOnPeak == -1) // On left, go right
+                        {
+                            for (int i = targetEstimate + 1; i <= 255; i++)
+                            {
+                                if (smoothH[i] >= smoothH[indexOfMaxValue])
+                                    indexOfMaxValue = i;
+                                if (smoothH[i] - smoothH[i - 1] < -smoothH[i - 1] * cfg.MinPeakRatio)
+                                {
+                                    indexOfPeak = indexOfMaxValue;
+                                    break;
+                                }
+                            }
+                        }
+                        else if (posOnPeak == +1) // On right, go left
+                        {
+                            for (int i = targetEstimate - 1; i >= 0; i--)
+                            {
+                                if (smoothH[i] >= smoothH[indexOfMaxValue])
+                                    indexOfMaxValue = i;
+                                if (smoothH[i] - smoothH[i + 1] < -smoothH[i + 1] * cfg.MinPeakRatio)
+                                {
+                                    indexOfPeak = indexOfMaxValue;
+                                    break;
+                                }
+                            }
+                        }
+                        if (indexOfPeak > 0 && indexOfPeak < 255) // we found a peak. Need to walk toward minima on both directions now
+                        {
+                            int highAt = indexOfPeak;
+                            int lowAt = indexOfPeak;
+                            int minRefAt = indexOfPeak;
+                            for (int i = indexOfPeak + 1; i <= 255; i++)
+                            {
+                                if (smoothH[i - 1] < smoothH[minRefAt])
+                                    minRefAt = i - 1;
+                                if (i == 255 || smoothH[i] - smoothH[minRefAt] > smoothH[minRefAt] * cfg.MinPeakRatio)
+                                {
+                                    highAt = minRefAt;
+                                    break;
+                                }
+                            }
+                            minRefAt = indexOfPeak;
+                            for (int i = indexOfPeak - 1; i >= 0; i--)
+                            {
+                                if (smoothH[i] < smoothH[minRefAt])
+                                    minRefAt = i;
+                                if (i == 0 || smoothH[i] - smoothH[minRefAt] > smoothH[minRefAt] * cfg.MinPeakRatio)
+                                {
+                                    lowAt = minRefAt;
+                                    break;
+                                }
+                            }
+                            return ((int)Math.Max(0, lowAt), (int)Math.Min(255, highAt), ThresholdDetectionType.TargetedHump);
+                        }
+                    }
+                    else // the histogram is flat
+                    { 
 
-                for (int i = start; i < end; i++) {
-                    if (smoothH[i] < minVal) {
-                        minVal = smoothH[i];
-                        valley = i;
                     }
                 }
-                threshold = valley;
             }
-            else 
+
+            // PHASE 2: Auto pin
+            // Collect Maximas.
+            Dictionary<int, int> extremas = new ();
+            List<int> peaks = new();
+            List<int> valleys = new();
+            List<int> regionSizes = new();
             {
-                // UNIMODAL CASE: Only one peak detected
-                // If peak is on the right (bright), walk left until the "mountain" ends
-                if (primaryPeak > 128) 
+                int i = 0;
+                bool findingUpEdge = true;
+                bool hasDownEdge() => smoothH[i] - smoothH[i - 1] < -smoothH[i] * cfg.MinPeakRatio;
+                bool hasUpEdge() => (smoothH[i + 1] - smoothH[i] > smoothH[i] * cfg.MinPeakRatio);
+                bool hasRequiredEdge() => findingUpEdge ? hasUpEdge() : hasDownEdge();
+                while (i < 255)
                 {
-                    threshold = primaryPeak - 50; // Fallback
-                    for (int i = primaryPeak; i > 0; i--) {
-                        // Stop when the population drops to 10% of the peak height
-                        if (smoothH[i] < (maxVal * 0.10f)) { threshold = i; break; }
+                    if (hasRequiredEdge())
+                    {
+                        if (i == 0) { i++; continue; }
+                        extremas[i] = findingUpEdge ? 1 : -1;
+                        if (!findingUpEdge)
+                            peaks.Add(i);
+                        else
+                            valleys.Add(i);
+                        findingUpEdge = !findingUpEdge;
                     }
+                    i++;
                 }
-                else // Peak is on the left (dark background), walk right
-                {
-                    threshold = primaryPeak + 50; // Fallback
-                    for (int i = primaryPeak; i < 256; i++) {
-                        if (smoothH[i] < (maxVal * 0.10f)) { threshold = i; break; }
-                    }
-                }
+                if (valleys.Count >= 3) // at least 2 peaks
+                    return (valleys[0], valleys[1], ThresholdDetectionType.SmallestPeak);
+                else if (valleys.Count == 2)
+                    return (valleys[0], valleys[0], ThresholdDetectionType.SingleBackground);
+                else
+                    return (0, 0, ThresholdDetectionType.NoRegions);
             }
-
-            using var histVis = VisualizeHistogram(smoothH, threshold);
-            InstantDebug(histVis, "Hist");
-
-            return threshold;
         }
 
-        private float[] SmoothHistogram(float[] data, int window) {
+        private static float[] SmoothHistogram(float[] data, int window) {
             if (window <= 0) return data;
             float[] result = new float[data.Length];
             for (int i = 0; i < data.Length; i++) {
@@ -536,8 +667,9 @@ namespace PITrackerCore
         public int MaxROI { get; set; } = 75;
         public int MinObjSize { get; set; } = 2;
         public int MaxObjSize { get; set; } = 300;
-        public int HistogramSmoothingWindow { get; set; } = 3;
-        
+        public int HistogramSmoothingWindow { get; set; } = 5;
+        public float MinPeakRatio { get; set; } = 0.2F;
+
         // Mixing Weights (0.0 to 1.0)
         public float ThresholdWeight { get; set; } = 0.7f; // How much to keep the old threshold
         public float VelocityWeight { get; set; } = 0.6f;  // How much to trust the prediction vs current measurement
@@ -546,8 +678,7 @@ namespace PITrackerCore
 
         // Demo Source
         /// <summary>Path to a directory of .jpg frames used in Demo mode.</summary>
-        public string DemoFramesPath { get; set; } = System.IO.Path.Combine(
-            System.AppContext.BaseDirectory, "demo_frames");
+        public string DemoFramesPath { get; set; } = System.IO.Path.Combine(System.AppContext.BaseDirectory, "demo_frames");
     }
 
     public class LockTrain
@@ -570,7 +701,7 @@ namespace PITrackerCore
             // Example of a decaying average giving more weight to recent entries
             float totalWeight = 0;
             float weightedSum = 0;
-            float decayFactor = 0.5f; // Recent entries get more weight
+            float decayFactor = 0.1f; // Recent entries get more weight
             float weight = 1;
             for (int i = values.Count - 1; i >= 0; i--, weight += (int)(weight * decayFactor))
             {
@@ -595,7 +726,8 @@ namespace PITrackerCore
             double avgDy = decayingAverage(history.Select(p => (float)p.dY).ToList());
             double avgDw = decayingAverage(history.Select(p => (float)p.dW).ToList());
             double avgDh = decayingAverage(history.Select(p => (float)p.dH).ToList());
-            double binaryThreshold = decayingAverage(history.Select(p => (float)p.BinaryThreshold).ToList());
+            double binaryThresholdHigh = decayingAverage(history.Select(p => (float)p.BinaryThresholdHigh).ToList());
+            double binaryThresholdLow = decayingAverage(history.Select(p => (float)p.BinaryThresholdLow).ToList());
 
 
             return new LockParameters
@@ -610,7 +742,8 @@ namespace PITrackerCore
                 dY = avgDy,
                 dW = avgDw,
                 dH = avgDh,
-                BinaryThreshold = (int)binaryThreshold,
+                BinaryThresholdHigh = (int)binaryThresholdHigh,
+                BinaryThresholdLow = (int)binaryThresholdLow,
                 IsManual = false,
                 IsLocked = true
             };
@@ -661,7 +794,8 @@ namespace PITrackerCore
         public int RoiOffsetY { get; set; } = 50;
 
         // State Metadata
-        public int BinaryThreshold { get; set; }
+        public int BinaryThresholdHigh { get; set; } = 10;
+        public int BinaryThresholdLow { get; set; }
         public double Confidence { get; set; } = 1.0;
         public DateTime LockTime { get; set; }
         public bool IsLocked { get; set; }
