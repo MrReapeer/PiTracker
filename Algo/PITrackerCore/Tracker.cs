@@ -27,13 +27,41 @@ namespace PITrackerCore
         public event DebugFrameCallback OnDebugFrame;
         public event DebugFrameCallback OnMicroDebug;
         public event TrackOutputCallback OnTrackOutput;
+        public event TrackOutputCallback OnTrackTargetFound;
 
         public LockParameters currentTarget { get; private set; }
+        public LockParameters intersetZone { get; private set; }
         private OpenCvSharp.Size _lastFrameSize;
 
         void SetTarget(LockParameters target)
         {
             currentTarget = target;
+        }
+
+        public void SetInterestZone(double nx, double ny, int seedW, int seedH)
+        {
+            var frameWidth = _lastFrameSize.Width;
+            var frameHeight = _lastFrameSize.Height;
+            // Convert normalized [-1..1] to absolute pixels
+            var px = ((nx + 1.0) / 2.0) * frameWidth;
+            var py = ((ny + 1.0) / 2.0) * frameHeight;
+
+            intersetZone = new LockParameters
+            {
+                IsManual = true,
+                IsLocked = true,
+                IsSeed = true,
+                X = px - (seedW / 2.0), // Center the box on the coordinates
+                Y = py - (seedH / 2.0),
+                W = seedW,
+                H = seedH,
+                RoiOffsetX = 64,
+                RoiOffsetY = 64,
+                LockTime = DateTime.UtcNow,
+                Confidence = 1.0,
+                LastRoi = new Rect((int)(px - seedW), (int)(py - seedH), seedW * 2, seedH * 2),
+                DebugInfo = "Interest Zone"
+            };
         }
         // Add this inside PITrackerCore.Tracker
         public void SetTarget(double nx, double ny)
@@ -105,8 +133,18 @@ namespace PITrackerCore
 
                     // 2. Execute Tracking Algorithm
                     var trackState = TryLock(settings, frame);
-
-                    OnTrackOutput?.Invoke(new TrackData(trackState, frame));
+                    if (intersetZone == null)
+                    {
+                        lastProcessed = trackState;
+                        OnTrackOutput?.Invoke(new TrackData(trackState, frame));
+                    }
+                    else
+                    {
+                        if (trackState.IsLocked)
+                        {
+                            OnTrackTargetFound(new TrackData(trackState, frame));
+                        }
+                    }
                     if (!frame.IsDisposed)
                         frame.Dispose();
                 }
@@ -251,7 +289,7 @@ namespace PITrackerCore
         }
         LockParameters _TryLock_(TrackerSettings cfg, Mat frame)
         {
-            if (frame == null || frame.Empty())
+            if (frame == null || frame.Empty()) // camera failure
             {
                 lastProcessed = null;
                 return null;
@@ -262,11 +300,14 @@ namespace PITrackerCore
                 currentTarget = null; // Clear current target to force using the new seed
             }
             else // continue a track
-                if (lastProcessed == null) // first frame
+                if (lastProcessed == null) // not even a first frame
                 {
                     // no target, no history.
-                    lastProcessed = null;
-                    return null;
+                    if (intersetZone == null) // not even a potential interest zone
+                    {
+                        lastProcessed = null;
+                        return null;
+                    }
                 }
             // find the last locked state in the history chain
 
@@ -275,7 +316,7 @@ namespace PITrackerCore
             if (lastProcessed.IsManual)
                 last = lastProcessed;
 
-            if (last == null) // nevel locked
+            if (last == null && intersetZone == null) // nevel locked, and not gonna try
             {
                 lastProcessed = null;
                 return null;
@@ -332,7 +373,7 @@ namespace PITrackerCore
 
             using Mat binary = new Mat();
 
-            //Cv2.InRange(roiGray, new Scalar(safeLow), new Scalar(safeHigh), binary);
+            Cv2.InRange(roiGray, new Scalar(safeLow), new Scalar(safeHigh), binary);
             //Cv2.ImShow("roi", roiView);
             //Cv2.ImShow("binary", binary);
             //var histVis = VisualizeHistogramWithThresholds(roiGray, safeLow, safeHigh, centerEst, cfg);
@@ -346,7 +387,8 @@ namespace PITrackerCore
 
             // --- STEP 3: MEASUREMENT (Median and Bounding Rect) ---
             int whiteCount = Cv2.CountNonZero(binary);
-            if (whiteCount < cfg.MinObjSize) return new LockParameters { IsLocked = false };
+            if (whiteCount < cfg.MinObjSize) 
+                return new LockParameters { IsLocked = false };
 
             using Mat locations = new Mat();
             Cv2.FindNonZero(binary, locations);
@@ -376,6 +418,7 @@ namespace PITrackerCore
             double sizeConf = last.W == 0 ? 1.0 : 1.0 - Math.Min(1.0, Math.Abs((dimensions.Width - last.W) / last.W));
             double roiConfX = Math.Min(Math.Max(1.0 - ((double)(newOffsetX - cfg.MaxROI) / cfg.MaxROI), 0), 1);
             double roiConfY = Math.Min(Math.Max(1.0 - ((double)(newOffsetY - cfg.MaxROI) / cfg.MaxROI), 0), 1);
+            double thresholdingConf = type == ThresholdDetectionType.TargetedHump ? 1 : (type == ThresholdDetectionType.SmallestPeak ? 0.6 : (type == ThresholdDetectionType.SingleBackground ? 0.1 : 0));
             double roiConf = Math.Min(roiConfX, roiConfY);
             double lostConf = LockParameters.GetLockedUnloackedRatio(lastProcessed, 30);
             double currentFrameConf = (velConf + sizeConf + roiConf + lostConf) / 4.0;
@@ -390,7 +433,7 @@ namespace PITrackerCore
 
             // Display the frame on screen
             //Cv2.ImShow("Tracker", frame);
-            lastProcessed = new LockParameters
+            return new LockParameters
             {
                 X = smoothedX,
                 Y = smoothedY,
@@ -413,7 +456,6 @@ namespace PITrackerCore
                 LastRoi = roiRect,
                 DebugInfo = sb.ToString()
             };
-            return lastProcessed;
         }
         public (double Width, double Height) GetObjectDimensionsManual(Mat binary)
         {
@@ -753,6 +795,8 @@ namespace PITrackerCore
     {
         public static float GetLockedUnloackedRatio(LockParameters current, int depth = 10)
         {
+            if (current == null) // in case trying a target with no history.
+                return 0;
             // ratio of locked and unlocked
             int lockedCount = 0;
             int totalCount = 0;
