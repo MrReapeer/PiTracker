@@ -133,6 +133,11 @@ namespace PITrackerCore
 
                     // 2. Execute Tracking Algorithm
                     var trackState = TryLock(settings, frame);
+                    trackState.pX = (trackState.X + trackState.W / 2) / frame.Width;
+                    trackState.pY = (trackState.Y + trackState.H / 2) / frame.Height;
+                    trackState.pW = trackState.W / frame.Width;
+                    trackState.pH = trackState.H / frame.Height;
+
                     if (lastTrackedTarget != null) // in tracking
                     {
                         lastTrackedTarget = trackState;
@@ -849,6 +854,11 @@ namespace PITrackerCore
         public double Y { get; set; }
         public double W { get; set; }
         public double H { get; set; }
+        // Object Properties (proportional Coordinates)
+        public double pX { get; set; }
+        public double pY { get; set; }
+        public double pW { get; set; }
+        public double pH { get; set; }
         public Rect ObjRectangle { get => new Rect((int)(X), (int)(Y), (int)W, (int)H); }
         public Rect RoIRectangle { get => new Rect((int)(X - RoiOffsetX), (int)(Y - RoiOffsetY), (int)(W + RoiOffsetX * 2), (int)(H + RoiOffsetY * 2)); }
 
