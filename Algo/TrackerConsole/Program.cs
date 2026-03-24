@@ -46,7 +46,6 @@ internal class Program
         // Setup
         var userInput = new InputController();
         var tracker = PITrackerCore.Tracker.Create();
-        tracker.OnTrackOutput += (ouput) => { };
         var hud = DroneHUD.Create(tracker, userInput);
         tracker.BeginAsync();
 

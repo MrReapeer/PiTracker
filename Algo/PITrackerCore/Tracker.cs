@@ -27,10 +27,10 @@ namespace PITrackerCore
         public event DebugFrameCallback OnDebugFrame;
         public event DebugFrameCallback OnMicroDebug;
         public event TrackOutputCallback OnTrackOutput;
-        public event TrackOutputCallback OnTrackTargetFound;
 
         public LockParameters currentTarget { get; private set; }
-        public LockParameters intersetZone { get; private set; }
+        public LockParameters IntersetZone { get; private set; }
+        public LockParameters PotentialTarget { get; private set; }
         private OpenCvSharp.Size _lastFrameSize;
 
         void SetTarget(LockParameters target)
@@ -46,7 +46,7 @@ namespace PITrackerCore
             var px = ((nx + 1.0) / 2.0) * frameWidth;
             var py = ((ny + 1.0) / 2.0) * frameHeight;
 
-            intersetZone = new LockParameters
+            IntersetZone = new LockParameters
             {
                 IsManual = true,
                 IsLocked = true,
@@ -133,18 +133,17 @@ namespace PITrackerCore
 
                     // 2. Execute Tracking Algorithm
                     var trackState = TryLock(settings, frame);
-                    if (intersetZone == null)
+                    if (lastProcessed != null) // in tracking
                     {
                         lastProcessed = trackState;
-                        OnTrackOutput?.Invoke(new TrackData(trackState, frame));
                     }
                     else
                     {
-                        if (trackState.IsLocked)
-                        {
-                            OnTrackTargetFound(new TrackData(trackState, frame));
-                        }
+                        if (IntersetZone != null && trackState != null)
+                            if (trackState.IsLocked)
+                                PotentialTarget = trackState;
                     }
+                    OnTrackOutput?.Invoke(new TrackData(trackState, frame));
                     if (!frame.IsDisposed)
                         frame.Dispose();
                 }
@@ -298,25 +297,30 @@ namespace PITrackerCore
             {
                 UpdateTargetThresholdEstimate(currentTarget, frame, cfg);
                 currentTarget = null; // Clear current target to force using the new seed
+                IntersetZone = null;
             }
             else // continue a track
                 if (lastProcessed == null) // not even a first frame
                 {
                     // no target, no history.
-                    if (intersetZone == null) // not even a potential interest zone
+                    if (IntersetZone == null) // not even a potential interest zone
                     {
                         lastProcessed = null;
                         return null;
                     }
                 }
+
+            PotentialTarget = null;
             // find the last locked state in the history chain
 
             var train = new LockTrain(LockParameters.GetLastLocked(LockParameters.GetLastLocked(lastProcessed)), 5);
             var last = train.GetSmoothened();
-            if (lastProcessed.IsManual)
-                last = lastProcessed;
+            if (IntersetZone != null && lastProcessed == null) lastProcessed = IntersetZone;
+            if (lastProcessed != null) // override interset zone in case we are in tracking
+                if (lastProcessed.IsManual)
+                    last = lastProcessed;
 
-            if (last == null && intersetZone == null) // nevel locked, and not gonna try
+            if (last == null) // nevel locked
             {
                 lastProcessed = null;
                 return null;
@@ -826,6 +830,7 @@ namespace PITrackerCore
         public double Y { get; set; }
         public double W { get; set; }
         public double H { get; set; }
+        public Rect ObjRectangle { get => new Rect((int)(X), (int)(Y), (int)W, (int)H); }
 
         // Kinematics (Change per frame)
         public double dX { get; set; }

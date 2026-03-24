@@ -23,11 +23,21 @@ namespace TrackerConsole
             userinput.OnTargetChange += (x, y) => { };
             tracker.OnTrackOutput += (output) =>
             {
-                DrawCrosshair(output.Frame, userinput.CursorX, userinput.CursorY);
+                if (tracker.IntersetZone != null)
+                    DrawRegion(output.Frame, tracker.IntersetZone.ObjRectangle);
+                if (tracker.PotentialTarget != null)
+                    DrawCrosshair(output.Frame, userinput.CursorX, userinput.CursorY);
                 DrawTelemetry(output.Frame, output.Lock, "Tracking");
                 hud.renderer.Display(output.Frame);
             };
             return hud;
+        }
+        static void DrawRegion(Mat frame, Rect rect)
+        {
+            // Draw a distinct targeting reticle (White with black shadow for analog visibility)
+            Cv2.Rectangle(frame, rect, Scalar.Black, 4);
+            Cv2.Rectangle(frame, rect, Scalar.White, 2);
+            Cv2.Circle(frame, new Point(rect.X + rect.Width / 2, rect.Y + rect.Height / 2), 4, Scalar.Red, -1); // Solid red center dot
         }
         static void DrawCrosshair(Mat frame, double nx, double ny)
         {
