@@ -100,7 +100,7 @@ namespace PITrackerCore
         {
             lockingFree.WaitOne();
             currentTarget = null;
-            lastProcessed = null;
+            lastTrackedTarget = null;
         }
 
 
@@ -133,17 +133,21 @@ namespace PITrackerCore
 
                     // 2. Execute Tracking Algorithm
                     var trackState = TryLock(settings, frame);
-                    if (lastProcessed != null) // in tracking
+                    if (lastTrackedTarget != null) // in tracking
                     {
-                        lastProcessed = trackState;
+                        lastTrackedTarget = trackState;
                     }
                     else
                     {
-                        if (InterestZone != null && trackState != null)
+                        if (InterestZone != null && trackState != null){
+                            lastTrackedPotentialTarget = trackState;
                             if (trackState.IsLocked)
+                            {                                
                                 PotentialTarget = trackState;
+                            }
+                        }
                     }
-                    OnTrackOutput?.Invoke(new TrackData(lastProcessed, frame));
+                    OnTrackOutput?.Invoke(new TrackData(lastTrackedTarget, frame));
                     if (!frame.IsDisposed)
                         frame.Dispose();
                 }
@@ -223,7 +227,8 @@ namespace PITrackerCore
 
             return histImage;
         }
-        LockParameters lastProcessed = null;
+        LockParameters lastTrackedTarget = null;
+        LockParameters lastTrackedPotentialTarget = null;
         ManualResetEvent lockingFree = new ManualResetEvent(false);
         public LockParameters TryLock(TrackerSettings cfg, Mat frame)
         {
@@ -284,30 +289,30 @@ namespace PITrackerCore
             //Cv2.WaitKey(1);
             (currentTarget.BinaryThresholdLow, currentTarget.BinaryThresholdHigh, _) = GetHistogramThresholdRange(roiGray, cfg, 0);
 
-            lastProcessed = currentTarget; // remove previous history
+            lastTrackedTarget = currentTarget; // remove previous history
         }
         LockParameters _TryLock_(TrackerSettings cfg, Mat frame)
         {
             bool canPursuePotentialTarget = false;
             if (frame == null || frame.Empty()) // camera failure
             {
-                lastProcessed = null;
+                lastTrackedTarget = null;
                 return null;
             }
             if (currentTarget != null)  // new manual target
             {
                 UpdateTargetThresholdEstimate(currentTarget, frame, cfg);
-                // We now wil;l have a "lastProcessed" with IsManual set
+                // We now wil;l have a "lastTrackedTarget" with IsManual set
                 currentTarget = null; // Clear current target to force using the new seed
                 InterestZone = null;
             }
             else // continue a track
-                if (lastProcessed == null) // no existing tracks
+                if (lastTrackedTarget == null) // no existing tracks
                 {
                     // no target, no history.
                     if (InterestZone == null) // not even a potential interest zone
                     {
-                        lastProcessed = null;
+                        lastTrackedTarget = null;
                         return null;
                     }
                     else
@@ -319,13 +324,15 @@ namespace PITrackerCore
             // find the last locked state in the history chain
 
             LockParameters last = null;
-            if (lastProcessed != null) {
-                var train = new LockTrain(LockParameters.GetLastLocked(LockParameters.GetLastLocked(lastProcessed)), 5);
+            if (lastTrackedTarget != null) {
+                var train = new LockTrain(LockParameters.GetLastLocked(LockParameters.GetLastLocked(lastTrackedTarget)), 5);
                 last = train.GetSmoothened();
             }
             else if (canPursuePotentialTarget)
             {
-                last = InterestZone; // cannot be null in case canPursuePotentialTarget is true
+                InterestZone.Seed = lastTrackedPotentialTarget; // carry forward the seed info for better tracking
+                var train = new LockTrain(LockParameters.GetLastLocked(LockParameters.GetLastLocked(InterestZone)), 5);
+                last = train.GetSmoothened();; // cannot be null in case canPursuePotentialTarget is true
             }
             else
             { 
@@ -436,7 +443,7 @@ namespace PITrackerCore
             double roiConfY = Math.Min(Math.Max(1.0 - ((double)(newOffsetY - cfg.MaxROI) / cfg.MaxROI), 0), 1);
             double thresholdingConf = type == ThresholdDetectionType.TargetedHump ? 1 : (type == ThresholdDetectionType.SmallestPeak ? 0.6 : (type == ThresholdDetectionType.SingleBackground ? 0.1 : 0));
             double roiConf = Math.Min(roiConfX, roiConfY);
-            double lostConf = LockParameters.GetLockedUnloackedRatio(lastProcessed, 30);
+            double lostConf = LockParameters.GetLockedUnloackedRatio(lastTrackedTarget, 30);
             double currentFrameConf = (velConf + sizeConf + roiConf + lostConf) / 4.0;
 
             double finalConf = last.IsManual ? currentFrameConf : (last.Confidence * cfg.ConfidenceWeight) + (currentFrameConf * (1 - cfg.ConfidenceWeight));
