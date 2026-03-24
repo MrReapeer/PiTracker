@@ -13,9 +13,9 @@ internal class Program
 
         var userInput = new InputController();
         var tracker = PITrackerCore.Tracker.Create();
-        var hud = DroneHUD.Create(tracker, userInput);
         var droneController = DroneController.Open(cs.Token);
         var pilot = VisualPilot.Create(tracker, droneController, cs.Token);
+        var hud = DroneHUD.Create(tracker, userInput, pilot, droneController);
 
         // Start tracking
         tracker.BeginAsync();

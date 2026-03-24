@@ -17,7 +17,7 @@ namespace TrackerConsole
         {
             renderer = FrameRenderer.Create();
         }
-        public static DroneHUD Create(PITrackerCore.Tracker tracker, InputController userinput)
+        public static DroneHUD Create(PITrackerCore.Tracker tracker, InputController userinput, VisualPilot pilot, DroneController droneController)
         {
             var hud = new DroneHUD();
             userinput.OnTargetChange += (x, y) => { };
@@ -42,7 +42,7 @@ namespace TrackerConsole
                 {
                     Cv2.Rectangle(output.Frame, target.ObjRectangle, Scalar.Red, 2);
                 }
-                DrawTelemetry(output.Frame, output.Lock, "Tracking");
+                DrawTelemetry(output.Frame, output.Lock, pilot.Status.ToString());
                 hud.renderer.Display(output.Frame);
             };
             return hud;

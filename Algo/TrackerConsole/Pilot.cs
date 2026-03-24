@@ -19,7 +19,7 @@ namespace TrackerConsole
         // Configuration
         public float BaseAscendThrust { get; set; } = 0.3f; // 0.0 to 1.0 (hover to climb)
         public float TargetSizePercentage { get; set; } = 0.4f; // Stop climbing if target fills 40% of frame
-
+        public PilotStatus Status { get; private set; } = PilotStatus.Idle;
         VisualPilot(Tracker tracker, DroneController drone)
         {
             _tracker = tracker;
@@ -68,20 +68,24 @@ while (!token.IsCancellationRequested)
                         // A. Do we have a solid, locked target?
                         if (track.Lock != null && track.Lock.IsLocked)
                         {
+                            Status = PilotStatus.Pursuing;
                             targetToPursue = track.Lock;
                         }
                         // B. If no hard lock, are we allowed to search for one?
                         else if (_drone.Mode == DroneController.PursuitMode.LocateAndPursue)
                         {
+                            Status = PilotStatus.FindingTarget;
                             // Did the Interest Zone find something promising?
                             if (_tracker.PotentialTarget != null && _tracker.PotentialTarget.IsLocked)
                             {
+                                Status = PilotStatus.AutoPursuing;
                                 targetToPursue = _tracker.PotentialTarget;
                             }
                             // No potential target either. Ensure the Interest Zone is active in the center!
                             // We check for null so we don't spam the Tracker thread and reset its history every 50ms.
                             else if (_tracker.InterestZone == null)
                             {
+                                Status = PilotStatus.Idle;
                                 // nx = 0, ny = 0 is the exact center. 
                                 // Seed size of 100x100 pixels (adjust based on your camera resolution)
                                 _tracker.SetInterestZone(0.0, 0.0, 100, 100);
@@ -92,6 +96,7 @@ while (!token.IsCancellationRequested)
                     // --- 2. EXECUTE FLIGHT COMMANDS ---
                     if (targetToPursue != null)
                     {
+                        Status = PilotStatus.Pursuing;
                         // 1. Calculate Visual Error (-1.0 to 1.0)
                         // pX ranges from 0.0 (Left) to 1.0 (Right). Center is 0.5.
                         float errorX = ((float)targetToPursue.pX - 0.5f) * 2.0f;
@@ -124,6 +129,7 @@ while (!token.IsCancellationRequested)
                     }
                     else
                     {
+                        Status = PilotStatus.Idle;
                         // Target lost, or we are in manual Controller mode
                         _rollPid.Reset();
                         _pitchPid.Reset();
@@ -134,6 +140,13 @@ while (!token.IsCancellationRequested)
                     Thread.Sleep(20); 
                 }
             }).Start();
+        }
+        public enum PilotStatus
+        {
+            Idle,
+            Controller,
+            Pursuing,
+            FindingTarget
         }
     }
 
