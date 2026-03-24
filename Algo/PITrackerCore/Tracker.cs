@@ -280,14 +280,15 @@ namespace PITrackerCore
             using Mat roiGray = new Mat();
             using Mat roiView = frame[roiRect];
             Cv2.CvtColor(roiView, roiGray, ColorConversionCodes.BGR2GRAY);
-            Cv2.ImShow("temp", roiGray);
-            Cv2.WaitKey(1);
+            //v2.ImShow("temp", roiGray);
+            //Cv2.WaitKey(1);
             (currentTarget.BinaryThresholdLow, currentTarget.BinaryThresholdHigh, _) = GetHistogramThresholdRange(roiGray, cfg, 0);
 
             lastProcessed = currentTarget; // remove previous history
         }
         LockParameters _TryLock_(TrackerSettings cfg, Mat frame)
         {
+            bool canPursuePotentialTarget = false;
             if (frame == null || frame.Empty()) // camera failure
             {
                 lastProcessed = null;
@@ -296,11 +297,12 @@ namespace PITrackerCore
             if (currentTarget != null)  // new manual target
             {
                 UpdateTargetThresholdEstimate(currentTarget, frame, cfg);
+                // We now wil;l have a "lastProcessed" with IsManual set
                 currentTarget = null; // Clear current target to force using the new seed
                 IntersetZone = null;
             }
             else // continue a track
-                if (lastProcessed == null) // not even a first frame
+                if (lastProcessed == null) // no existing tracks
                 {
                     // no target, no history.
                     if (IntersetZone == null) // not even a potential interest zone
@@ -308,24 +310,29 @@ namespace PITrackerCore
                         lastProcessed = null;
                         return null;
                     }
+                    else
+                    {
+                        canPursuePotentialTarget = true;
+                    }
                 }
 
-            PotentialTarget = null;
             // find the last locked state in the history chain
 
-            var train = new LockTrain(LockParameters.GetLastLocked(LockParameters.GetLastLocked(lastProcessed)), 5);
-            var last = train.GetSmoothened();
-            if (IntersetZone != null && lastProcessed == null) lastProcessed = IntersetZone;
-            if (lastProcessed != null) // override interset zone in case we are in tracking
-                if (lastProcessed.IsManual)
-                    last = lastProcessed;
-
-            if (last == null) // nevel locked
+            LockParameters last = null;
+            if (lastProcessed != null) {
+                var train = new LockTrain(LockParameters.GetLastLocked(LockParameters.GetLastLocked(lastProcessed)), 5);
+                last = train.GetSmoothened();
+            }
+            else if (canPursuePotentialTarget)
             {
-                lastProcessed = null;
+                last = IntersetZone; // cannot be null in case canPursuePotentialTarget is true
+            }
+            else
+            { 
+                // its a mistake, return;
                 return null;
             }
-
+            
             Stopwatch sw = Stopwatch.StartNew();
             StringBuilder sb = new StringBuilder();
 
