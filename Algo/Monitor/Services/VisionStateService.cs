@@ -140,8 +140,7 @@ namespace Monitor.Services
             {
                 using var resized = ResizeForStream(frame);
                 using var toSend = DrawOverlay(frame, resized, lockResult);
-                Cv2.ImEncode(".jpg", toSend, out var jpegBytes,
-                    new ImageEncodingParam(ImwriteFlags.JpegQuality, StreamConfig.JpegQuality));
+                Cv2.ImEncode(".jpg", toSend, out var jpegBytes, new ImageEncodingParam(ImwriteFlags.JpegQuality, StreamConfig.JpegQuality));
                 LatestFrameBase64 = "data:image/jpeg;base64," + Convert.ToBase64String(jpegBytes);
             }
             catch

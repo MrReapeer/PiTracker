@@ -29,7 +29,7 @@ namespace PITrackerCore
         public event TrackOutputCallback OnTrackOutput;
 
         public LockParameters currentTarget { get; private set; }
-        public LockParameters IntersetZone { get; private set; }
+        public LockParameters InterestZone { get; private set; }
         public LockParameters PotentialTarget { get; private set; }
         private OpenCvSharp.Size _lastFrameSize;
 
@@ -46,7 +46,7 @@ namespace PITrackerCore
             var px = ((nx + 1.0) / 2.0) * frameWidth;
             var py = ((ny + 1.0) / 2.0) * frameHeight;
 
-            IntersetZone = new LockParameters
+            InterestZone = new LockParameters
             {
                 IsManual = true,
                 IsLocked = true,
@@ -139,17 +139,17 @@ namespace PITrackerCore
                     }
                     else
                     {
-                        if (IntersetZone != null && trackState != null)
+                        if (InterestZone != null && trackState != null)
                             if (trackState.IsLocked)
                                 PotentialTarget = trackState;
                     }
-                    OnTrackOutput?.Invoke(new TrackData(trackState, frame));
+                    OnTrackOutput?.Invoke(new TrackData(lastProcessed, frame));
                     if (!frame.IsDisposed)
                         frame.Dispose();
                 }
             }).Start(); ;
 
-        }
+        } 
         public void RequestStop()
         {
             Camera.Stop();
@@ -299,13 +299,13 @@ namespace PITrackerCore
                 UpdateTargetThresholdEstimate(currentTarget, frame, cfg);
                 // We now wil;l have a "lastProcessed" with IsManual set
                 currentTarget = null; // Clear current target to force using the new seed
-                IntersetZone = null;
+                InterestZone = null;
             }
             else // continue a track
                 if (lastProcessed == null) // no existing tracks
                 {
                     // no target, no history.
-                    if (IntersetZone == null) // not even a potential interest zone
+                    if (InterestZone == null) // not even a potential interest zone
                     {
                         lastProcessed = null;
                         return null;
@@ -325,9 +325,14 @@ namespace PITrackerCore
             }
             else if (canPursuePotentialTarget)
             {
-                last = IntersetZone; // cannot be null in case canPursuePotentialTarget is true
+                last = InterestZone; // cannot be null in case canPursuePotentialTarget is true
             }
             else
+            { 
+                // its a mistake, return;
+                return null;
+            }
+            if (last == null)
             { 
                 // its a mistake, return;
                 return null;
@@ -838,6 +843,7 @@ namespace PITrackerCore
         public double W { get; set; }
         public double H { get; set; }
         public Rect ObjRectangle { get => new Rect((int)(X), (int)(Y), (int)W, (int)H); }
+        public Rect RoIRectangle { get => new Rect((int)(X - RoiOffsetX), (int)(Y - RoiOffsetY), (int)(W + RoiOffsetX * 2), (int)(H + RoiOffsetY * 2)); }
 
         // Kinematics (Change per frame)
         public double dX { get; set; }

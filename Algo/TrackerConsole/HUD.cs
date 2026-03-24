@@ -23,21 +23,29 @@ namespace TrackerConsole
             userinput.OnTargetChange += (x, y) => { };
             tracker.OnTrackOutput += (output) =>
             {
-                if (tracker.IntersetZone != null)
-                    DrawRegion(output.Frame, tracker.IntersetZone.ObjRectangle);
-                if (tracker.PotentialTarget != null)
-                    DrawCrosshair(output.Frame, userinput.CursorX, userinput.CursorY);
+                LockParameters roi = output.Lock;
+                LockParameters target = output.Lock;
+                if (output.Lock == null) // no taget, see if there is interest zone
+                {
+                    roi = tracker.InterestZone;
+                    target = tracker.PotentialTarget;
+                }
+
+                if (roi != null)
+                {
+                    Cv2.Rectangle(output.Frame, roi.RoIRectangle, Scalar.Green, 4);
+                    if (output.Lock != null)
+                    // Cross hair means we have a lock
+                        DrawCrosshair(output.Frame, userinput.CursorX, userinput.CursorY);
+                }
+                if (target != null)
+                {
+                    Cv2.Rectangle(output.Frame, target.ObjRectangle, Scalar.Red, 2);
+                }
                 DrawTelemetry(output.Frame, output.Lock, "Tracking");
                 hud.renderer.Display(output.Frame);
             };
             return hud;
-        }
-        static void DrawRegion(Mat frame, Rect rect)
-        {
-            // Draw a distinct targeting reticle (White with black shadow for analog visibility)
-            Cv2.Rectangle(frame, rect, Scalar.Black, 4);
-            Cv2.Rectangle(frame, rect, Scalar.White, 2);
-            Cv2.Circle(frame, new Point(rect.X + rect.Width / 2, rect.Y + rect.Height / 2), 4, Scalar.Red, -1); // Solid red center dot
         }
         static void DrawCrosshair(Mat frame, double nx, double ny)
         {
@@ -62,11 +70,8 @@ namespace TrackerConsole
 
             if (state != null && state.IsLocked)
             {
-                // Draw Tracking Box
-                var box = new Rect((int)state.X, (int)state.Y, (int)state.W, (int)state.H);
-                Cv2.Rectangle(frame, box, Scalar.FromRgb(0, 255, 0), 2);
-
                 // Draw Velocity Vector
+                var box = new Rect((int)state.X, (int)state.Y, (int)state.W, (int)state.H);
                 var center = new Point(box.X + box.Width / 2, box.Y + box.Height / 2);
                 var dxEnd = new Point((int)(center.X + state.dX), (int)(center.Y + state.dY));
                 Cv2.ArrowedLine(frame, center, dxEnd, Scalar.Red, 2, LineTypes.AntiAlias, 0, 0.3);
